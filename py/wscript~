@@ -1,0 +1,15 @@
+# -*- mode: python; -*-
+
+import os
+import os.path as op
+
+def build(bld):
+    source = bld.path.ant_glob('*.py')
+    obj = bld(features='py',
+              source=source,
+              dest='${PREFIX}/lib/python2.7/site-packages/hsc_pipe')
+    obj.install_path = '${PREFIX}/lib/python2.7/site-packages/hsc_pipe'
+#    obj = bld(features='py', 
+#    	          source=sources,
+#              dest="${PREFIX}/lib/python2.7/site-packages/saunerie/")
+#              obj.install_path = "${PREFIX}/lib/python2.7/site-packages/saunerie"

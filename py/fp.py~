@@ -1,0 +1,802 @@
+"""
+"""
+
+
+import numpy as np
+from scipy.sparse import coo_matrix, dia_matrix
+from scipy.sparse import linalg
+from sksparse import cholmod
+
+import logging 
+logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s', 
+                    level=logging.INFO)
+
+import matplotlib
+# matplotlib.use('Agg')
+
+from matplotlib.patches import Rectangle, Polygon
+from matplotlib.collections import PatchCollection
+import pylab as pl
+pl.interactive(0)
+
+import healpy as hp
+from mx.DateTime import DateTimeFrom
+
+import croaks
+import saunerie
+from saunerie.fitparameters import FitParameters 
+import saunerie.selinv as selinv
+import saunerie.linearmodels as lm
+
+
+
+RADIAN_PER_DEGREE = np.pi / 180.
+DEGREE_PER_RADIAN = 180. / np.pi
+
+
+class Chip(object):
+    """
+    LSST sensor. It knows 
+       (1) where it is (in raft coordinates)
+       (2) how to superpixellize itself. 
+
+    .. example:
+        >>> ccd = Chip(5, 1467., 7728.)
+        >>> cells = ccd.pixellize(3,3)        
+    """
+    Nx, Ny = 4072, 4072
+    
+    def __init__(self, num, dx, dy):
+        self.num = num
+        self.dx, self.dy = dx, dy
+        self.transform = np.matrix([[1., 0., self.dx], [0., 1., self.dy], [0., 0., 1.]])
+        
+    def pixellize(self, nx, ny):
+        """Build and return an array of superpixels [in raft coordinates]
+
+        Each superpixel is identified by the coordinates of its 4
+        corners.  These corners are transformed from CCD coordinates
+        to raft coordinates.
+
+        Args:
+          nx (int): number of cells along the x axis
+          ny (int): number of cells along the y axis
+
+        Returns:
+          cells (recarray): an array of cells
+        """
+        ncells = nx*ny
+        dx = np.floor(np.linspace(0, self.Nx, nx+1))
+        dy = np.floor(np.linspace(0, self.Ny, ny+1))
+        gx,gy = np.meshgrid(dx,dy)
+        x0, y0 = gx[:-1,:-1].ravel(), gy[:-1,:-1].ravel()
+        x1, y1 = gx[1:,1:].ravel(), gy[1:,1:].ravel()
+        
+        N = len(x0.ravel())        
+        O = np.ones(N, dtype=np.float)
+        p = np.zeros(N, dtype=[('iexp', 'i8'), ('icell', 'i4'), ('ichip', 'i4'), ('iraft', 'i4'), 
+                               ('p0', '3f4'), ('p1', '3f4'), ('p2', '3f4'), ('p3', '3f4')])
+        
+        # initialize the cell structure 
+        p['icell'] = np.arange(N, dtype=np.int)
+        p['ichip'] = np.asarray(self.num * np.ones(N), dtype=np.int)
+        p['iraft'] = -np.ones(N, dtype=np.int)
+        p['p0'][:,0] = x0 ; p['p0'][:,1] = y0 ; p['p0'][:,2] = 1.
+        p['p1'][:,0] = x1 ; p['p1'][:,1] = y0 ; p['p1'][:,2] = 1.
+        p['p2'][:,0] = x1 ; p['p2'][:,1] = y1 ; p['p2'][:,2] = 1.
+        p['p3'][:,0] = x0 ; p['p3'][:,1] = y1 ; p['p3'][:,2] = 1.
+        
+        # position it in the focal plane 
+        M = self.transform
+        for k in ['p0', 'p1', 'p2', 'p3']:
+            p[k] = (M * p[k].T).T
+        return p
+        
+    
+class Raft(object):
+    """
+    A 3x3 ccd unit. 21 rafts on the LSST focal plane. 
+    
+    This class knows:
+      (1) where it is w.r.t. the other rafts (in focal plane coordinates)
+      (2) how to position its CCDs
+      (3) how to superpixellize itself 
+          (return its superpixels it focal plane coordinates).
+    """
+    Chip_gap = 100
+    Nx, Ny = 3*Chip.Nx + 2*Chip_gap, 3*Chip.Ny + 2*Chip_gap
+    
+    CHIP_COORDINATES_IN_RAFT = np.asarray([
+            (0, 0., 2.), (1, 1., 2.), (2, 2., 2.),
+            (3, 0., 1.), (4, 1., 1.), (5, 2., 1.),
+            (6, 0., 0.), (7, 1., 0.), (8, 2., 0.),
+            ])
+    
+    def __init__(self, num, dx, dy):
+        """
+        """
+        self.num = num
+        self.dx, self.dy = dx, dy
+        self.chips = []
+        nnx, nny = Chip.Nx+self.Chip_gap, Chip.Ny+self.Chip_gap
+        self.transform = np.matrix([[1., 0., self.dx], [0., 1., self.dy], [0., 0., 1.]])
+        for ichip, dx, dy in self.CHIP_COORDINATES_IN_RAFT:
+            self.chips.append(Chip(ichip, dx*nnx, dy*nny))
+            
+    def pixellize(self, nx, ny):
+        """Superpixellize the raft. Superpixel Focal plane coordinates.
+        
+        Calls superpixellize on each of its CCDs, and transform the
+        superpixel coordinates from Raft coordinates to CCD
+        coordinates.
+        """        
+        p = np.hstack([c.pixellize(nx, ny) for c in self.chips])
+        p['iraft'] = self.num
+        # position the raft in the focal plane
+        M = self.transform 
+        for k in ['p0', 'p1', 'p2', 'p3']:
+            p[k] = (M * p[k].T).T
+        return p
+    
+
+class FocalPlane(object):
+    """
+    The full LSST focal plane (a set of 21 rafts)
+    """    
+    Raft_gap = 200
+    N_rafts = 21
+    N_ccd_per_raft = 9
+    
+    RAFT_COORDINATES_IN_FOCAL_PLANE = np.asarray([
+            ( 0, -1.,  2.), ( 1,  0., 2.), ( 2, +1,  2.),
+            ( 3, -2., 1.), ( 4, -1.,  1.), ( 5,  0,  1.), ( 6, +1., 1.), ( 7, +2., 1.),
+            ( 8, -2., 0.), ( 9, -1.,  0.), (10,  0,  0.), (11, +1., 0.), (12, +2., 0.),
+            (13, -2.,-1.), (14, -1., -1.), (15,  0, -1.), (16, +1.,-1.), (17, +2.,-1.),
+            (18, -1., -2.), (19,  0.,-2.), (20, +1, -2.),])
+
+    def __init__(self, nx=1, ny=1):
+        self.pixel_size = 0.2
+        self.nx, self.ny = 4072, 4072
+        self.gap = 153
+        self.rafts = []
+        rad_per_degree = np.pi / 180.
+        scale = 0.2 / 3600. * RADIAN_PER_DEGREE
+        self.transform = np.matrix([[scale, 0., -6208.*scale], [0., scale, -6208. * scale], [0., 0., 1.]])
+        nnx, nny = Raft.Nx + self.Raft_gap, Raft.Ny + self.Raft_gap
+        for iraft, dx, dy in self.RAFT_COORDINATES_IN_FOCAL_PLANE:
+            self.rafts.append(Raft(iraft, dx*nnx, dy*nny))
+    
+    def pixellize(self, nx, ny):
+        p = np.hstack([r.pixellize(nx, ny) for r in self.rafts])
+        # renumber the chips and the cells
+        p['ichip'] += p['iraft'] * self.N_ccd_per_raft
+        ncells_per_chip = nx*ny
+        p['icell'] += p['ichip']*ncells_per_chip
+        # recenter the mosaic, so that the center of raft 10
+        # is at (0,0) in the tangent plane
+        M = self.transform
+        p['p0'] = (M * p['p0'].T).T
+        p['p1'] = (M * p['p1'].T).T
+        p['p2'] = (M * p['p2'].T).T
+        p['p3'] = (M * p['p3'].T).T        
+        return p
+
+    def rotate(self, cells, theta=0.):
+        t = theta * RADIAN_PER_DEGREE
+        c,s = np.cos(t), np.sin(t)
+        R = np.matrix([[c, -s, 0.], [s, c, 0.], [0., 0., 1.]])
+        cells['p0'] = (R * cells['p0'].T).T
+        cells['p1'] = (R * cells['p1'].T).T
+        cells['p2'] = (R * cells['p2'].T).T
+        cells['p3'] = (R * cells['p3'].T).T
+        return cells
+        
+    def tan2radec(self, xyz, tp):
+        ra0, dec0  = (tp[0]  * RADIAN_PER_DEGREE, tp[1] * RADIAN_PER_DEGREE)
+        cos0, sin0 = np.cos(dec0), np.sin(dec0)
+        l,m,_ = xyz.T
+        dec_t = cos0 - m * sin0
+        ra_t = (ra0 + np.arctan2(l, dec_t) + np.pi) % (2. * np.pi) - np.pi 
+        dec_t = (np.arctan2(np.cos(ra_t-ra0) * (m*cos0 + sin0), dec_t) + np.pi) % (2. * np.pi) - np.pi
+        return ra_t, dec_t
+
+    def to_sky(self, cells, tp):
+        """
+        takes as an input the cells defined in the TP and the (ra,dec)
+        of the mosaic central point, and computes the (ra,dec) of the
+        cell corners.
+        
+        .. note :: modifies the structure in place. 
+        """
+        for k in ['p0', 'p1', 'p2', 'p3']:
+            ra, dec = self.tan2radec(cells[k], tp)
+            cells[k][:,0] = ra
+            cells[k][:,1] = dec
+    
+    def to_uv(self, cells, tp):
+        """
+        """
+        for k in ['p0', 'p1', 'p2', 'p3']:
+            ra, dec = self.tan2radec(cells[k], tp)
+            cells[k][:,0] = np.cos(dec) * np.cos(ra)
+            cells[k][:,1] = np.cos(dec) * np.sin(ra)
+            cells[k][:,2] = np.sin(dec)
+            
+            
+def draw_fp(cells, icell=None):
+    fig = pl.figure(figsize=(8,8))
+    sp = fig.add_subplot(111)        
+    l = []
+    col = []
+    for c in cells:
+        if c['icell'] == icell:
+            color = 1.
+        else:
+            color = c['icell']
+        col.append(color)
+        l.append(Polygon((c['p0'][:2], #* DEGREE_PER_RADIAN, 
+                          c['p1'][:2], #* DEGREE_PER_RADIAN, 
+                          c['p2'][:2], #* DEGREE_PER_RADIAN, 
+                          c['p3'][:2], #* DEGREE_PER_RADIAN
+                          )))
+    pc = PatchCollection(l, alpha=0.5, lw=2)
+    sp.add_collection(pc)
+    pc.set_array(np.array(col))
+    pl.xlim((cells['p0'][:,0].min()-0.01, cells['p0'][:,0].max()+0.01))
+    pl.ylim((cells['p0'][:,1].min()-0.01, cells['p0'][:,1].max()+0.01))
+    pl.show()
+
+
+
+def main_map(fn='all_fields.npy'):
+    nside = 1024
+    m = np.zeros(hp.nside2npix(nside))    
+
+    # opsim log 
+    log = np.load(fn)
+    mjd_min = DateTimeFrom('2022-01-01').mjd
+    mjd_max = DateTimeFrom('2023-01-01').mjd
+    idx = (log['band'] == 'LSSTPG::i')
+    idx &= (log['mjd'] >= mjd_min)
+    idx &= (log['mjd'] <= mjd_max)
+    log = log[idx]
+    coords = np.vstack((log['Ra'] * DEGREE_PER_RADIAN, log['Dec'] * DEGREE_PER_RADIAN)).T
+    print coords.shape 
+        
+    f = FocalPlane()
+    p = f.pixellize(1,1)    
+    
+    for i,(r,d) in enumerate(coords):
+        if i%100 == 0:
+            print i, r, d
+        cells = p.copy()
+        f.to_uv(cells, (r,d))
+        
+        for c in cells:
+            poly = np.vstack([c['p0'], c['p1'], c['p2'], c['p3']])
+            ipix = hp.query_polygon(nside, poly, nest=True)
+            m[ipix] += 1.
+            
+    return m, p
+
+
+def query(cells, nside=1024):
+    for c in cells:
+        poly = np.vstack([c['p0'], c['p1'], c['p2'], c['p3']])
+        ipix = hp.query_polygon(nside, poly, nest=True)
+
+
+def build_proxy(l):
+    dp = croaks.DataProxy(l, expnum='expnum', cell='cell', 
+                          pixel='pixel', mjd='mjd', 
+                          refstar='refstar',
+                          refcell='refcell',
+                          gridobs='gridobs')
+    
+    mjd_min = dp.mjd[dp.mjd>0].min()
+    s = (dp.mjd - mjd_min).astype(int) / 60
+    s[s<0] = 0
+    dp.add_field('month', s)
+    
+    if dp.cell.max() < 1000:
+        s = (dp.month * 1000 + dp.cell).astype(int)
+    else:
+        assert False
+    dp.add_field('cellmonth', s)
+    dp.make_index('pixel', intmap=1)
+    dp.make_index('cell', intmap=1)
+    dp.make_index('expnum', intmap=1)
+    dp.make_index('cellmonth', intmap=1)
+    
+    return dp
+
+
+def simple_ubercal_model(dp):
+    """
+    the simplest possible ubercal model: 
+    """
+    mag = lm.indic(dp.pixel_index, name='mags')
+    zpexp = lm.indic(dp.expnum_index, name='zps', valid=dp.refstar==0)
+    return zpexp + mag
+
+
+def ubercal_model_with_photflat(dp, fix_grid_zp=True):
+    """
+    Ubercal model with one photometric flat on
+    
+    .. note : there is a degeneracy between the main zp's and 
+              the photometric flat dzp's and one needs to fix
+              at least one of them per epoch.
+    
+    """
+    mag = lm.indic(dp.pixel_index, name='mag')
+    zp = lm.indic(dp.expnum_index, name='zp', valid=dp.refstar==0)
+    dzp = lm.indic(dp.cellmonth_index, name='dzp', valid=dp.refstar==0)
+    model = mag + zp + dzp
+    
+    idx = dp.refcell == 1
+    tofix = np.unique(dp.cellmonth_index[idx])
+    logging.info('%s dzp parameters fixed: %r' %(len(tofix), tofix))
+    model.params['dzp'].fix(tofix, 0.)
+    #    model.params['dzp'].fix()
+    
+    if fix_grid_zp:
+        idx = dp.gridobs == True
+        tofix=np.unique(dp.expnum_index[idx])
+        logging.info('%s zp parameters fixed: %r' %(len(tofix), tofix))
+        model.params['zp'].fix(tofix, 0.)
+    
+    return model
+
+
+class UbercalModel(object):
+    """
+    I no longer use that. 
+    """
+    def __init__(self, data):
+        self.data = data
+        # identify the N (pseudo-)stars that have measurements
+        # and remap their indices to [0;N-1]
+        # self.pixels contains the (unique) healpix index of the pixels 
+        # self.istars contains the remapped values of these indices
+        logging.info('[UbercalModel] identify measured stars')
+        self.pixels, self.istar = np.unique(data['pixel'], return_inverse=1)
+        self.nstars = len(self.pixels)
+        
+        # exposures 
+        logging.info('[UbercalModel] identify exposures')
+        exp, self.iexp = np.unique(data['expnum'], return_inverse=1)
+        self.nexp = len(exp)
+        # internal parameter vector 
+        self.pars = self.init_pars()
+        
+    def init_pars(self):
+        p = FitParameters([('zps', self.nexp), ('mags', self.nstars)])
+        return p
+
+    def __call__(self, p=None, jac=False):
+        
+        if p is not None:
+            self.pars.free = p
+        
+        m = self.pars['mags'].full[self.istar]
+        zp = self.pars['zps'].full[self.iexp]
+        val = m + zp
+        
+        N = len(self.data)
+        n = len(self.pars.free)
+        nz = len(self.pars['zps'].full)        
+        
+        if jac:
+            i_zp, v_zp = np.arange(N), np.ones(N, dtype='f8')
+            j_zp_free = self.pars['zps'].indexof(self.iexp)
+            idx = j_zp_free >= 0
+            i_zp, j_zp, v_zp = i_zp[idx], j_zp_free[idx], v_zp[idx]
+            
+            i_mags, v_mags = np.arange(N), np.ones(N, dtype='f8')
+            j_mags_free = self.pars['mags'].indexof(self.istar)
+            idx = j_mags_free >= 0
+            i_mags, j_mags, v_mags = i_mags[idx], j_mags_free[idx], v_mags[idx]
+            
+            i = np.hstack((i_zp, i_mags))
+            j = np.hstack((j_zp, j_mags))
+            v = np.hstack((v_zp, v_mags))
+            J = coo_matrix((v, (i,j)), shape=(N,n))
+            return val, J
+
+        return val
+
+        
+
+def main_observe(nside=1024, refpixs=None, fn=None, dither=False, mjd_range=None, band='LSSTPG::i'):
+    """
+    Build the observation NTuple
+    (each measurement associates a focal plane cell to a sky pixel)
+    """
+    m = np.zeros(hp.nside2npix(nside))
+
+    # opsim log 
+    log = np.load(fn)
+    if mjd_range is None:
+        mjd_min = DateTimeFrom('2023-01-01').mjd
+        mjd_max = DateTimeFrom('2024-01-01').mjd
+    else:
+        mjd_min, mjd_max = mjd_range
+    idx = (log['band'] == band)
+    idx &= (log['mjd'] >= mjd_min)
+    idx &= (log['mjd'] <= mjd_max)
+    log = log[idx]
+    iexp = np.arange(len(log))
+    n_exp = len(log)                                                                                                                                                                          
+    if dither:
+        d_ra = np.random.uniform(-1. * RADIAN_PER_DEGREE, 1. * RADIAN_PER_DEGREE, n_exp) 
+        d_dec = np.random.uniform(1. * RADIAN_PER_DEGREE, 1. * RADIAN_PER_DEGREE, n_exp)
+    else:
+        d_ra = np.zeros(n_exp)
+        d_dec = np.zeros(n_exp)
+        
+    coords = np.vstack((log['Ra'] * DEGREE_PER_RADIAN, 
+                        log['Dec'] * DEGREE_PER_RADIAN, 
+                        log['mjd'],
+                        iexp,
+                        log['gridobs'],
+                        log['rotation'])).T
+    dtype=np.dtype([('expnum', 'i4'), ('cell', 'i2'), 
+                    # ('ichip', 'i4'), 
+                    # ('iraft', 'i4'), 
+                    ('pixel', 'i4'), ('mjd', 'f8'),
+                    ('refstar', 'i2'),
+                    ('refcell', 'i2'),
+                    ('gridobs', 'i2')])
+    
+    f = FocalPlane()
+    p = f.pixellize(1,1)    
+    l = []
+    
+    for i,(r,d,mjd,iexp,gridobs,rotation) in enumerate(coords):
+        if i%100 == 0:
+            logging.info('exposure: % 6d  [RA=% 6.6f DEC=% +6.5f]' % (i,r,d))
+        cells = p.copy()
+        if np.abs(rotation)>0.:
+            cells = f.rotate(cells, theta=rotation * 180. / np.pi)
+        f.to_uv(cells, (r,d))
+        
+        for c in cells:
+            poly = np.vstack([c['p0'], c['p1'], c['p2'], c['p3']])
+            try:
+                ipix = hp.query_polygon(nside, poly, nest=True, inclusive=False)
+            except:
+                continue
+            m[ipix] += 1
+            N = len(ipix)
+            z = np.zeros(N, dtype=dtype)
+            z['expnum'] = iexp
+            z['cell'] = c['icell']
+            z['pixel'] = ipix
+            z['mjd'] = mjd
+            z['gridobs'] = gridobs
+            l.append(z)
+
+    # reference objects (well, here, we have reference pixels)
+    if refpixs is not None:
+        N = len(refpixs)
+        z = np.zeros(N, dtype=dtype)
+        z['pixel'] = refpixs
+        z['refstar'] = 1
+        l.append(z)
+        
+    return m, np.hstack(l)
+
+
+def radec2pix(ra_deg, dec_deg, nside=1024):
+    phi   = ra_deg * RADIAN_PER_DEGREE
+    theta = 0.5*np.pi - dec_deg * RADIAN_PER_DEGREE
+    return hp.ang2pix(nside, theta, phi, nest=True)
+
+
+def get_flux_standards(nside, random=0):
+    if random <= 0.:
+        ra = np.array([0., 12., 32., 55.])
+        dec = np.array([0., -22., -12., -45.])
+    else:
+        ra = np.random.uniform(0., 350., random)
+        dec = np.random.uniform(-55, -5., random)
+    return radec2pix(ra, dec, nside=nside)
+
+
+def plot_flux_standards(ra, dec, nside=256):
+    #    ra = np.array([0., 12., 32., 55.])
+    #    dec = np.array([0., -22., -12., -45.])
+    pix = radec2pix(ra, dec, nside=nside)
+    m = np.zeros(hp.nside2npix(nside))
+    m[pix] = 1.E6
+    hp.mollview(m, nest=True, xsize=5000)
+    
+
+def main_fisher(fn='tst.obs.npz', refcell=94):
+    logging.info('loading data from: %s' % fn)
+    t = np.load(fn)
+    m,l = t['m'], t['l']
+    
+    logging.info('identifying refcell measurements [%d]' % refcell)
+    idx = l['cell'] == refcell
+    l['refcell'][idx] = 1
+    logging.info('%d measurements on that reference cell' % l['refcell'].sum())
+    
+    logging.info('data proxy')
+    dp = build_proxy(l)
+    
+    logging.info('ubercal model')
+    #    model = simple_ubercal_model(dp)
+    model = ubercal_model_with_photflat(dp)
+
+    logging.info('building the Fisher matrix')
+    J = model.get_free_mat()
+    N,n = J.shape
+    W = dia_matrix((1.E5 * np.ones(N), [0]), shape=(N,N))
+    H = J.T * W * J
+    
+    logging.info('cholesky factorization')
+    fact = cholmod.cholesky(H)
+    
+    return dp, model, H, fact
+    
+
+def main_selinv(dp, model, H, fact, nside=1024, plot=True):
+    # compute and plot the diagonal of the inverse Fisher matrix
+    logging.info('diagonal of the inverse Fisher matrix')
+    r = saunerie.selinv.selinv(H, fact.P())
+    md = np.zeros(hp.nside2npix(nside))
+    md[:] = hp.UNSEEN
+    p = model.params.copy()
+    p.free = r
+    md[dp.pixel_set] = np.sqrt(p['mag'].full)
+    
+    if plot is True:
+        hp.mollview(md, nest=True)
+        
+    return md
+
+def main_realizations(dp, model, H, fact, nside=1024, n_realizations=1, plot=True, dump_plot=False, prefix='realization'):
+    if dump_plot == True:
+        plot = True
+    # compute and plot the specified number of realizations
+    # of the fitted mags
+    ret = []
+    D = fact.D()
+    for i_realization in xrange(n_realizations):
+        logging.info('survey realizations: %d : cell dmags' % i_realization)
+        z = np.random.normal(size=len(model.params.free))
+        zz = fact.solve_Lt(z)
+        zz = zz / np.sqrt(D)
+        zz = fact.apply_Pt(zz)
+        m = np.zeros(hp.nside2npix(nside))
+        m[:] = hp.UNSEEN
+        p = model.params.copy()
+        p.free = zz
+        m[dp.pixel_set] = p['mag'].full
+        if plot is True:
+            hp.mollview(m, nest=True, min=-0.01, max=0.01)
+            if dump_plot:
+                pl.gcf().savefig(prefix + "_%03d.png" % i_realization)
+        ret.append(m)
+    return ret
+
+
+def stack_cl(dp, model, H, fact, nside=1024, n_realizations=500):
+    cl = []
+    npix = hp.nside2npix(nside)
+    mm = np.zeros(npix)
+    i = np.arange(npix)
+    for i_realization in xrange(n_realizations):
+        ret = main_realizations(dp, model, H, fact, nside=nside, n_realizations=1, plot=False)
+        m = ret[0]
+        mm[:] = m[hp.ring2nest(1024,i)]
+        c = hp.anafast(mm, lmax=1500)
+        cl.append(c)
+        del ret
+    return cl
+
+
+def observe_all(pkg=0):
+    if pkg == 0:
+        m,l = main_observe(refpixs=get_flux_standards(1024), dither=False, fn='all_fields_wfd_dd_minion1626_grid_25_rotation.npy')
+        np.savez('obs_minion1626_grid_25_rotation.npz', l=l, m=m)
+        hp.mollview(m, nest=1)
+        pl.gcf().savefig('nobs_minion1626_grid_25_rotation.png')
+    elif pkg == 1:
+        m,l = main_observe(refpixs=get_flux_standards(1024), dither=False, fn='all_fields_wfd_dd_minion1626_grid_25_norotation.npy')
+        np.savez('obs_minion1626_grid_25_norotation.npz', l=l, m=m)
+        hp.mollview(m, nest=1)
+        pl.gcf().savefig('nobs_minion1626_grid_25_norotation.png')
+    elif pkg == 2:
+        m,l = main_observe(refpixs=get_flux_standards(1024), dither=False, fn='all_fields_wfd_dd_minion1626_nogrids.npy')
+        np.savez('obs_minion1626_nogrids.npz', l=l, m=m)
+        hp.mollview(m, nest=1)
+        pl.gcf().savefig('nobs_minion1626_nogrids.png')
+    elif pkg == 3:
+        m,l = main_observe(refpixs=get_flux_standards(1024), dither=False, fn='all_fields_wfd_dd_baseline10yr_grid_25_norotation.npy')
+        np.savez('obs_baseline_grid_25_norotation.npz', l=l, m=m)
+        hp.mollview(m, nest=1)
+        pl.gcf().savefig('nobs_baseline_grid_25_norotation.png')
+    elif pkg == 4:
+        m,l = main_observe(refpixs=get_flux_standards(1024), dither=False, fn='all_fields_wfd_dd_baseline10yr_nogrids.npy')
+        np.savez('obs_baseline_nogrids.npz', l=l, m=m)
+        hp.mollview(m, nest=1)
+        pl.gcf().savefig('nobs_baseline_nogrids.png')
+        
+#all_fields_wfd_dd_baseline10yr_nogrids.npy
+#all_fields_wfd_dd_baseline10yr_grid_25_norotation.npy
+
+##################################################################################
+def main_fisher_diag(l, neigs=0):
+    
+    logging.info('main_fisher - new UbercalModel')
+    model = UbercalModel(l)
+    logging.info('building fisher matrix')
+    model.pars['zps'].fix(0, 0.0)
+    v,J = model(jac=True)
+    #    J.data /= 0.01**2
+    N,n = J.shape
+    H = J.T * J 
+    
+    logging.info('cholesky factorization')
+    fact = cholmod.cholesky(H)
+    
+    logging.info('cholesky inverse')
+    def mv(x):
+        return fact.solve_A(x)
+    OPinv = OPinv = linalg.LinearOperator(H.shape, mv)
+    
+    e,v = None, None
+    if neigs > 0:
+        logging.info('extracting smallest eigenvals/eigenvects')
+        #    X = np.random.random((n,3))
+        X = np.random.random(neigs * 5288154)
+        X = X = X.reshape((-1,neigs))
+        tol = 1.E-5
+        e,v = linalg.lobpcg(H,X, largest=False, verbosityLevel=2, maxiter=100, M=OPinv)
+    
+    return H, e, v, model, fact
+
+
+def draw_map(m, cmap=pl.cm.jet, filename=None):
+    mm = m.copy()
+    mm[mm<=0] = hp.UNSEEN
+    cmap.set_under('w')
+    hp.mollview(mm, nest=True, cmap=cmap)
+    hp.graticule()
+    if filename is not None:
+        fig = pl.gcf()
+        fig.savefig(filename + '.png', bbox_inches='tight')
+
+
+def draw_eigenvect(i, e, v, model, cmap=pl.cm.jet, filename=None, sig=None):
+    if sig is not None:
+        scale = np.sqrt(sig**2 / e[i])
+    else:
+        scale = 1.
+    print scale 
+    m = np.zeros(hp.nside2npix(1024))
+    m[:] = hp.UNSEEN
+    vv = v[:,i][model.pars['mags'].indexof()]
+    cmap.set_under('w')
+    m[model.pixels] = scale * vv
+    hp.mollview(m, nest=True, cmap=cmap)
+    hp.graticule()
+    if filename is not None:
+        fig = pl.gcf()
+        fig.savefig(filename + '.png', bbox_inches='tight')
+    return m
+    
+
+    
+    
+def extreme_eigenvecs(model, dp, H, fact, nside=1024):
+    N = H.shape[0]    
+    logging.info('eigenector corresponding to the smallest eigen value of C')
+    X = np.random.random(size=N)
+    for i in xrange(2):
+        X /= np.sqrt((X**2).sum())
+        X = H * X
+    
+    m = np.zeros(hp.nside2npix(nside))
+    m[:] = hp.UNSEEN
+    X /= np.sqrt((X**2).sum())
+    model.params.free = X
+    m[dp.pixel_set] = model.params['mag'].full
+    hp.mollview(m, nest=True)
+    
+    logging.info('eigenector corresponding to the largest eigen value of C')
+    X = np.random.random(size=N)
+    for i in xrange(5):
+        X /= np.sqrt((X**2).sum())
+        Y = fact.solve_LDLt(X)
+        X = Y.copy()
+    
+    m = np.zeros(hp.nside2npix(nside))
+    m[:] = hp.UNSEEN
+    X /= np.sqrt((X**2).sum())
+    model.params.free = fact.apply_Pt(X)
+    m[dp.pixel_set] = model.params['mag'].full # X[model.pars['mags'].indexof()]
+    hp.mollview(m, nest=True)
+    
+
+# def main_fisher(dp, model, nside=1024):
+#     logging.info('main_fisher - new UbercalModel')
+#     #    model = UbercalModel(l)
+#     logging.info('building the Fisher matrix')
+#     #    model.pars['zps'].fix(0, 0.0)
+#     #    for i in xrange(10):
+#     #        model.pars['mags'].fix(42 + 1000*i, 0.0)
+#     v,J = model(jac=True)
+    
+#     #    J.data /= 0.01**2
+#     N,n = J.shape
+
+#     # nothing very realistic here. 
+#     # just to rescale the uncertainties
+#     W = dia_matrix((1.E4 * np.ones(N), [0]), shape=(N,N))
+#     H = J.T * W * J 
+    
+#     logging.info('cholesky factorization')
+#     fact = cholmod.cholesky(H)
+
+#     return model, H, fact
+
+
+# def main_old():
+
+#     ra, dec = -45., 12.
+#     nside = 1024
+#     m = np.zeros(hp.nside2npix(nside))
+#     f = FocalPlane()    
+#     p = f.pixellize(1,1)
+    
+#     cells = p.copy()
+#     f.to_uv(cells, (ra,dec))
+    
+#     for c in cells:
+#         poly = np.vstack([c['p0'], c['p1'], c['p2'], c['p3']])
+#         ipix = hp.querypolygon(nside, poly)
+#         m[ipix] += c['ichip']
+    
+#     return m, cells
+
+    
+# def main_random(N=100):
+    
+#     nside = 1024
+#     m = np.zeros(hp.nside2npix(nside))    
+    
+#     f = FocalPlane()
+#     p = f.pixellize(1,1)    
+#     coords = np.vstack((ra,dec)).T
+    
+#     for i,(r,d) in enumerate(coords):
+#         if i%100 == 0:
+#             print i, r, d
+#         cells = p.copy()
+#         f.to_uv(cells, (r,d))
+        
+#         for c in cells:
+#             poly = np.vstack([c['p0'], c['p1'], c['p2'], c['p3']])
+#             ipix = hp.query_polygon(nside, poly, nest=True)
+#             m[ipix] += 1. # c['icell']
+            
+#     return m, p
+
+
+# def draw_map(cells, lon_0=0., lat_0=-70):
+#     fig = pl.figure(figsize=(8,8))
+#     #    m = Basemap(projection='hammer', lon_0=0.)
+#     m = Basemap(projection='gnom', 
+#                 lon_0=lon_0, lat_0=lat_0,
+#                 llcrnrlon=lon_0-30., llcrnrlat=lat_0-30.,
+#                 urcrnrlon=lon_0+30., urcrnrlat=lat_0+30.,)
+#     m.drawmeridians(np.arange(lon_0, lon_0+360., 10.))
+#     m.drawparallels(np.arange(lat_0-90., lat_0+90., 10.))
+#     x,y = m(cells['p0'][:,0] * DEGREE_PER_RADIAN, cells['p0'][:,1] * DEGREE_PER_RADIAN)
+#     m.plot(x,y, 'r.')
+
+

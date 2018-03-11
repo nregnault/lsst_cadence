@@ -1,0 +1,170 @@
+#!/usr/bin/env python
+
+import os
+import os.path as op
+
+import logging
+logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
+                    level=logging.INFO)
+import argparse
+import sqlite3
+import numpy as np
+import croaks 
+
+
+kAtm = { 'u': 0.50,
+         'g': 0.21,
+         'r': 0.13,
+         'i': 0.10,
+         'z': 0.07,
+         'y': 0.18 }
+
+
+dtype = ['index', 'observationId', 'night', 
+         'observationStartTime', 
+         'observationStartMJD', 
+         'observationStartLST', 
+         'filter', 'proposalId', 
+         'fieldRA', 'fieldDec', 'angle', 
+         'altitude', 'azimuth', 'numExposures', 
+         'visitTime', 'visitExposureTime',
+         'airmass', 'skyBrightness', 'cloud', 'seeingFwhm500', 
+         'seeingFwhmGeom', 'seeingFwhmEff', 'fiveSigmaDepth', 
+         'moonRA', 'moonDec', 'moonAlt', 'moonAz', 'moonDistance', 'moonPhase', 
+         'sunRA', 'sunDec', 'sunAlt', 'sunAz', 'solarElong', 
+         'slewTime', 'slewDistance', 'paraAngle', 'rotTelPos', 'rotSkyPos', ]
+
+
+# these are the default columns Philippe used to retrieve
+# now, by default, we get all the colors
+default_cols = ['observationStartMJD', 'fiveSigmaDepth', 'filter', 'observationStartTime',
+                'fieldRA', 'fieldDec', 'visitTime', 'visitExposureTime', 'numExposures',
+                'seeingFwhm500', 'seeingFwhmGeom', 'seeingFwhmEff', 'moonPhase', 'airmass',
+                'skyBrightness']            
+
+
+class Read_Sqlite:
+    
+    def __init__(self, dbfile, **sel):
+        """
+        """
+        self.dbfile = dbfile
+        conn = sqlite3.connect(dbfile)
+        self.cur = conn.cursor()
+        # get the table list
+        self.cur.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        self.tables = self.cur.fetchall()
+        self.sql = self.sql_selection(**sel)
+        #        self.data = self.groom_data(self.get_data(sql))
+        
+    def sql_selection(self, *sel):
+        sql = ''
+        if 'year' in sel:
+            y = sel['year']
+            sql += 'night > %i and night < %i' % ((y-1)*365.25, y*365.25)
+        if 'mjd_min' in sel:
+            if len(sql) > 0: sql += ' and '
+            sql += 'observationStartMJD > %f' % sel['mjd_min']
+        if 'mjd_max' in sel:
+            if len(sql) > 0: sql += ' and '
+            sql += 'observationStartMJD < %f' % sel['mjd_max']            
+        if 'proposalId' in sel:
+            if len(sql) > 0: sql += ' and '
+            sql += 'proposalId=%d' % sel['proposalId']
+        return sql
+        
+    def get_data(self, cols=None, sql=None):
+        """
+        Get the contents of the SQL database dumped into a numpy rec array
+        """
+        sql_request = 'SELECT '
+        if cols is None:
+            sql_request += ' * '            
+            self.cur.execute('PRAGMA TABLE_INFO(SummaryAllProps)')
+            r = self.cur.fetchall()
+            cols = [c[1] for c in r]
+        else:
+            sql_request += ','.join(cols)
+            
+        sql_request += 'FROM SummaryAllProps'
+        if sql is not None:
+            sql_request += sql
+        sql_request += ';'
+        
+        logging.info('fetching data from db')
+        logging.info('request: %s' % sql_request)
+        self.cur.execute(sql_request)
+        rows = self.cur.fetchall()
+        logging.info('done. %d entries' % len(rows))
+
+        # TODO: convert filter names into str()
+        # TODO: add column for kAtm
+        
+#        logging.info('dumping results into a rec array')
+#        ret = np.rec.fromrecords(rows, names=cols)
+#        logging.info('done.')
+
+        return rows
+
+
+    def groom_data(self, data):
+        """
+        Uniformize some of the column names, so that they match ours.
+        If necessary, convert radian -> degrees
+        """
+        #dtype([('band', 'S9'), ('mjd', '<f8'), ('exptime', '<i8'), ('rawSeeing', '<f8'), ('seeing', '<f8'), ('moon_frac', '<f8'), ('sky', '<f8'), ('kAtm', '<f8'), ('airmass', '<f8'), ('m5sigmadepth', '<f8'), ('Nexp', '<i8'), ('Ra', '<f8'), ('Dec', '<f8'), ('field', '<i8')])
+        def map_col_name(key):
+            keymap = {'observationStartMJD': 'mjd',
+                      'filter': 'band',
+                      'visitExposureTime': 'exptime',
+                      'skyBrightness': 'sky',
+                      'fieldRA': 'Ra',
+                      'fieldDec': 'Dec',}
+            k = str(key)
+            if k not in keymap:
+                return k
+            return keymap[k]
+            
+        names = [map_col_name(n) for n in data.dtype.names]
+        data.dtype.names = names
+
+        logging.info('adding the kAtm field')
+        r = np.array([kAtm[b] for b in ret['filter']])
+        #        ret = croaks.rec_append_fields(base=ret, data=[r], names=['kAtm'])
+        
+        return data 
+    
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description='Dump a cadence database into a numpy npy file.')
+    parser.add_argument('-o', '--output',
+                        default='cadence.npy',
+                        help='output cadence file')
+    parser.add_argument('-b', '--band',
+                        default=None, type=str,
+                        help='limit the output to the specified band')
+    parser.add_argument('--mjd_min',
+                        default=None, type=float,
+                        help='only pointings taken after mjd')
+    parser.add_argument('--mjd_max',
+                        default=None, type=float,
+                        help='only pointings taken before mjd')
+    parser.add_argument('--year',
+                        default=None, type=float,
+                        help='only pointing taken between Jan 1st and Dec 31st of YEAR')
+    parser.add_argument('sql_database',
+                        help='cadence database')    
+    args = parser.parse_args()
+    
+    print args
+
+
+
+
+# Read_Sqlite('feature_baseline_10yrs','/sps/lsst/data/dev/pgris/sims_operations/DB_Files',year=2.)
+#Read_Sqlite('alt_sched_rolling',
+#            '/home/nrl/software/lsst_gaia_ubercal/data',
+#            year=2.)
+    

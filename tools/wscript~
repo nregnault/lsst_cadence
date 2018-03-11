@@ -1,0 +1,15 @@
+# -*- mode: python; -*-
+
+import os
+import os.path as op
+
+def build(bld):
+    source = bld.path.ant_glob('*.py')
+    #    bld(features='py', source=source, install_from='.')
+    for src in source:
+        bld.install_as('${PREFIX}/bin/' + op.basename(str(src)),
+                       src, 
+                       chmod=0755)
+
+
+
