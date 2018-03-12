@@ -2,16 +2,24 @@
 Perform the observations, for a given cadence, in a given band
 """
 
-cadence_dir = ''
+import os
+
+cadence_dir = '/data/nrl/LSST_GAIA_UBERCAL/cadence_db'
 
 cadence_name, mjd_min, mjd_max, band, nside = get_input()
-# log = get_log(cadence_name, mjd_min, mjd_max, band, cadence_dir=cadence_dir)
+cadence_file = cadence_dir + os.sep + cadence_name + '.npy'
 obs_file = get_data_fn('obs.npy')
+nvisits_plot = get_data_fn('nvisits.png')
 
-cmd = ['ubercal_observe', '-o', obs_file,
-       '--start', mjd_min, '--stop', mjd_max,
-       '--band', band, cadence_dir]
+cmd = ['ubercal_observe.py', '-o', obs_file,
+       '--mjd_min', str(mjd_min), '--mjd_max', str(mjd_max),
+       '--band', band, '--nside', str(nside), 
+       '--ncellsx', '1', '--ncellsy', '1', 
+       '--plots', nvisits_plot,
+       cadence_file]
+print ' '.join(cmd)
+logged_subprocess(cmd)
 
 
-output_seg = [(cadence_name, mjd_min, mjd_max, band, nside]
+output_seg = [(cadence_name, mjd_min, mjd_max, band, nside)]
 

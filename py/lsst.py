@@ -3,7 +3,7 @@ A simple model of the LSST focal plane
 """
 
 import numpy as np
-
+from . import RADIAN_PER_DEGREE
 
 class Chip(object):
     """

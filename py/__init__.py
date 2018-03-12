@@ -1,8 +1,24 @@
 """
 """
 
+import numpy as np
+import healpy as hp
+
+RADIAN_PER_DEGREE = np.pi / 180.
+DEGREE_PER_RADIAN = 180. / np.pi
+
 
 def radec2pix(ra_deg, dec_deg, nside=1024):
+    """just convert ra,dec into radians and call hp.ang2pix    
+
+    args:
+      ra_deg (float): right ascension (degrees)
+      dec_deg (float): declination (degrees)
+      nside (int): healpix nside
+
+    returns:
+      (int) pixel number 
+    """
     phi   = ra_deg * RADIAN_PER_DEGREE
     theta = 0.5*np.pi - dec_deg * RADIAN_PER_DEGREE
     return hp.ang2pix(nside, theta, phi, nest=True)
@@ -16,3 +32,4 @@ def get_flux_standards(nside, random=0):
         ra = np.random.uniform(0., 350., random)
         dec = np.random.uniform(-55, -5., random)
     return radec2pix(ra, dec, nside=nside)
+

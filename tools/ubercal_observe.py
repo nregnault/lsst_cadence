@@ -13,6 +13,11 @@ import os.path as op
 import sys
 import argparse
 
+import logging
+logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s', 
+                    level=logging.INFO)
+
+import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import pylab as pl
@@ -34,6 +39,13 @@ from ubercal import get_flux_standards
 RADIAN_PER_DEGREE = np.pi / 180.
 DEGREE_PER_RADIAN = 180. / np.pi
 
+OBS_DTYPE=np.dtype([('expnum', 'i4'), ('cell', 'i2'), 
+                    # ('ichip', 'i4'), 
+                    # ('iraft', 'i4'), 
+                    ('pixel', 'i4'), ('mjd', 'f8'),
+                    ('refstar', 'i2'),
+                    ('refcell', 'i2'),
+                    ('gridobs', 'i2')])
 
 
 def main_observe(log, nside, refpixs, nx=1, ny=1):
@@ -56,20 +68,30 @@ def main_observe(log, nside, refpixs, nx=1, ny=1):
     f = lsst.FocalPlane()
     p = f.pixellize(nx,ny)
     l = []
+    m = np.zeros(hp.nside2npix(nside))
 
-    iexp = np.arange(len(log), dtype=int)
+    n = len(log)
+    iexp = np.arange(n, dtype=int)
+    if 'gridobs' in log.dtype.names:
+        gridobs = log['gridobs']
+    else:
+        gridobs = np.zeros(n).astype(bool)
+    if 'rotation' in log.dtype.names:
+        rotation = log['rotation']
+    else:
+        rotation = np.zeros(n)
     coords = np.vstack((log['Ra'],
                         log['Dec'],
                         log['mjd'],
                         iexp,
-                        log['gridobs'],
-                        log['rotation'])).T
-    for r,d,mjd,i,gridobs,angle in coords:
+                        gridobs,
+                        rotation)).T
+    for i,(r,d,mjd,iexp,gridobs,angle) in enumerate(coords):
         if i%100 == 0:
             logging.info('exposure: % 6d [RA=% 6.6f DEC=% +6.5f]' % (i,r,d))
         cells = p.copy()
-        if np.abs(rotation)>0.:
-            cells = f.rotate(cells, theta=rotation * 180. / np.pi)
+        if np.abs(angle)>0.:
+            cells = f.rotate(cells, theta=angle * 180. / np.pi)
         f.to_uv(cells, (r,d))
 
         # main observations
@@ -81,7 +103,7 @@ def main_observe(log, nside, refpixs, nx=1, ny=1):
                 continue
             m[ipix] += 1
             N = len(ipix)
-            z = np.zeros(N, dtype=dtype)
+            z = np.zeros(N, dtype=OBS_DTYPE)
             z['expnum'] = iexp
             z['cell'] = c['icell']
             z['pixel'] = ipix
@@ -93,12 +115,12 @@ def main_observe(log, nside, refpixs, nx=1, ny=1):
         # reference pixels
         if refpixs is not None:
             N = len(refpixs)
-            z = np.zeros(N, dtype=dtype)
+            z = np.zeros(N, dtype=OBS_DTYPE)
             z['pixel'] = refpixs
             z['refstar'] = 1
             l.append(z)
 
-        return m, np.hstack(l)
+    return m, np.hstack(l)
 
 
 def select(log, band, mjd_min, mjd_max):
@@ -119,22 +141,22 @@ if __name__ == "__main__":
                         default='obs.npy',
                         help='output obs file')
     parser.add_argument('--mjd_min',
-                        dest='mjd_min', default=None, type=float,
+                        dest='mjd_min', default=59580., type=float,
                         help='observation period start')
     parser.add_argument('--mjd_max',
-                        dest='mjd_max', default=None, type=float,
+                        dest='mjd_max', default=59945., type=float,
                         help='observation period end')
     parser.add_argument('--band',
                         dest='band', default='z', type=str,
                         help='LSST passband [ugrizy]')
-    parser.add_argument('--nside', default=1024, type=int,
+    parser.add_argument('--nside', dest='nside', default=1024, type=int,
                         help='HEALPIX pixellization')
     parser.add_argument('--ncellsx', default=1, type=int, dest='nx',
                         help='number of cells per ccd in the x-direction')
     parser.add_argument('--ncellsy', default=1, type=int, dest='ny',
                         help='number of cells per ccd in the y-direction')
-    parser.add_argument('--plots', default=False,
-                        action='store_true',
+    parser.add_argument('--plots', default=None,
+                        dest='main_plot',
                         help='prepare and dump control plots')
     parser.add_argument('log', type=str, default=None,
                         help='observation log')
@@ -146,20 +168,20 @@ if __name__ == "__main__":
         parser.error('no observation log specified.')
 
     # loading data
-    log = select(np.load(args.log,
+    log = select(np.load(args.log),
                          band=args.band,
-                         mjd_min=args.mjd_min, mjd_max=args.mjd_max))
+                         mjd_min=args.mjd_min, mjd_max=args.mjd_max)
 
     # build the observation log
     logging.info('loop on observations ...')
-    m,l = main_observe(log, parser.nside, refpixs=get_flux_standards(args.nside),
-                       nx=parser.nx, ny=parser.ny)
+    m,l = main_observe(log, args.nside, refpixs=get_flux_standards(args.nside),
+                       nx=args.nx, ny=args.ny)
     logging.info('loop on observations ... done.')    
-
+    
     logging.info(' -> %s' % args.output)
     np.savez(args.output, m=m, l=l)
     
-    if args.plots == True:
+    if args.main_plot is not None:
         hp.mollview(m, nest=1)
-        pl.gcf().savefig()
-    
+        pl.gcf().savefig(args.main_plot, bbox_inches='tight')
+        
