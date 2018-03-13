@@ -2,9 +2,6 @@
 
 """
 
-.. note : healpix expects coordinates (Ra,Dec) in degrees. This is the
-          convention anyways in our ubercal pipeline, but has not been
-          always so. So, double check your inputs.
 
 """
 

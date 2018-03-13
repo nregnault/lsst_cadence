@@ -21,5 +21,5 @@ print ' '.join(cmd)
 logged_subprocess(cmd)
 
 
-output_seg = [(cadence_name, mjd_min, mjd_max, band, nside)]
+seg_output = [(cadence_name, mjd_min, mjd_max, band, nside)]
 
