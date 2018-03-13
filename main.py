@@ -86,7 +86,7 @@ def main():
         sys.exit(0)
         
     #    tasks = [('minion_1016', 59580., 59945., 'r', 1024)]
-    tasks = get_tasks(cadences, mjds, ['i', 'z'], nside=args.nside)
+    tasks = get_tasks(cadences, mjds, ['g', 'r', 'i', 'z'], nside=args.nside)
     P.push(observe=tasks)
     
     if args.debug:
