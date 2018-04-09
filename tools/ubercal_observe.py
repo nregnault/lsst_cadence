@@ -40,12 +40,13 @@ OBS_DTYPE=np.dtype([('expnum', 'i4'), ('cell', 'i2'),
                     # ('ichip', 'i4'), 
                     # ('iraft', 'i4'), 
                     ('pixel', 'i4'), ('mjd', 'f8'),
+                    ('band', '|S5'),
                     ('refstar', 'i2'),
                     ('refcell', 'i2'),
                     ('gridobs', 'i2')])
 
 
-def main_observe(log, nside, refpixs, nx=1, ny=1):
+def main_observe(log, nside, refpixs, nx=1, ny=1, fast=False):
     """For each pointing, generate the 
 
     Args:
@@ -62,8 +63,12 @@ def main_observe(log, nside, refpixs, nx=1, ny=1):
     .. note: this function expects Ra,Dec in degrees.  The convention
              has changed recently. Double check your inputs.
     """
-    f = lsst.FocalPlane()
-    p = f.pixellize(nx,ny)
+    if fast:
+        f = lsst.FocalPlaneSimple()
+        p = f.pixellize()
+    else:
+        f = lsst.FocalPlane()
+        p = f.pixellize(nx,ny)
     l = []
     m = np.zeros(hp.nside2npix(nside))
 
@@ -77,13 +82,17 @@ def main_observe(log, nside, refpixs, nx=1, ny=1):
         rotation = log['rotation']
     else:
         rotation = np.zeros(n)
-    coords = np.vstack((log['Ra'],
-                        log['Dec'],
-                        log['mjd'],
-                        iexp,
-                        gridobs,
-                        rotation)).T
-    for i,(r,d,mjd,iexp,gridobs,angle) in enumerate(coords):
+    # coords = np.vstack((log['Ra'],
+    #                     log['Dec'],
+    #                     log['mjd'],
+    #                     log['band'],
+    #                     iexp,
+    #                     gridobs,
+    #                     rotation)).T
+    n = len(log)
+    coords = np.rec.fromarrays((np.arange(n), log['Ra'], log['Dec'], log['mjd'], log['band'], iexp, gridobs, rotation))
+    #    for i,(r,d,mjd,band,iexp,gridobs,angle) in enumerate(coords):
+    for (i,r,d,mjd,band,iexp,gridobs,angle) in coords:
         if i%100 == 0:
             logging.info('exposure: % 6d [RA=% 6.6f DEC=% +6.5f]' % (i,r,d))
         cells = p.copy()
@@ -106,6 +115,7 @@ def main_observe(log, nside, refpixs, nx=1, ny=1):
             z['pixel'] = ipix
             z['mjd'] = mjd
             z['gridobs'] = gridobs
+            z['band'] = band
             l.append(z)
             
         
@@ -121,8 +131,11 @@ def main_observe(log, nside, refpixs, nx=1, ny=1):
 
 
 def select(log, band, mjd_min, mjd_max):
-    logging.info('selecting observations in band=%s and %f<mjd<%f' % (band, mjd_min, mjd_max))    
-    idx  = log['band'] == band
+    logging.info('selecting observations in band=%s and %f<mjd<%f' % (band, mjd_min, mjd_max))
+    if band is not None:
+        idx  = log['band'] == band
+    else:
+        idx  = np.ones(len(log)).astype(bool)
     idx &= (log['mjd'] >= mjd_min)
     idx &= (log['mjd'] <= mjd_max)
     logging.info('done. %d observations selected [%d in log]' % (idx.sum(), len(log)))
@@ -144,7 +157,7 @@ if __name__ == "__main__":
                         dest='mjd_max', default=59945., type=float,
                         help='observation period end')
     parser.add_argument('--band',
-                        dest='band', default='z', type=str,
+                        dest='band', default=None, type=str,
                         help='LSST passband [ugrizy]')
     parser.add_argument('--nside', dest='nside', default=1024, type=int,
                         help='HEALPIX pixellization')
@@ -155,6 +168,12 @@ if __name__ == "__main__":
     parser.add_argument('--plots', default=None,
                         dest='main_plot',
                         help='prepare and dump control plots')
+    parser.add_argument('--fast', default=None,
+                        dest='fast',
+                        help='use a simplistic focal plane')
+    parser.add_argument('--norefpixs', default=False,
+                        dest='norefpixs', action='store_true',
+                        help='no reference pixel observations')
     parser.add_argument('log', type=str, default=None,
                         help='observation log')
 
@@ -171,8 +190,14 @@ if __name__ == "__main__":
 
     # build the observation log
     logging.info('loop on observations ...')
-    m,l = main_observe(log, args.nside, refpixs=get_flux_standards(args.nside),
-                       nx=args.nx, ny=args.ny)
+    if args.norefpixs:
+        refpixs = None
+    else:
+        refpixs = get_flux_standards(args.nside)
+    m,l = main_observe(log, args.nside,
+                       refpixs=refpixs,
+                       #                       refpixs=get_flux_standards(args.nside),
+                       nx=args.nx, ny=args.ny, fast=args.fast)
     logging.info('loop on observations ... done.')    
     
     logging.info(' -> %s' % args.output)
