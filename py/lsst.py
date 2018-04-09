@@ -194,10 +194,52 @@ class FocalPlane(object):
             cells[k][:,2] = np.sin(dec)
 
 
+class FocalPlaneSimple(FocalPlane):
+    """
+    The LSST focal plane, with no sub-pixels.
+    
+    This class is used to study the LSST cadences (i.e. to derive from
+    the cadence files, the effective cadence of each healpix pixel).
+    
+    """
+    def __init__(self):
+        """
+        
+        """
+        p = self.cells = np.zeros(3,
+                                  dtype=[('iexp', 'i8'), ('icell', 'i4'), ('ichip', 'i4'), ('iraft', 'i4'), 
+                                         ('p0', '3f4'), ('p1', '3f4'), ('p2', '3f4'), ('p3', '3f4')])
+        cells = {0: (-0.03048508, -0.01825226, -0.01825226, 0.01825226),
+                 1: (-0.01825226,  0.01825226, -0.03048508, 0.03048508),
+                 2: ( 0.01844619,  0.03048508, -0.01825226, 0.01825226)}
+        self.rafts = []
+        for ic in xrange(3):
+            p[ic]['icell'] = ic
+            xmin, xmax, ymin, ymax = cells[ic]
+            p[ic]['p0'][:] = (xmin, ymin, 1.)
+            p[ic]['p1'][:] = (xmax, ymin, 1.)
+            p[ic]['p2'][:] = (xmax, ymax, 1.)
+            p[ic]['p3'][:] = (xmin, ymax, 1.)        
+    
+    def pixellize(self):
+        """
+        Only one pixellization.
+        """
+        return self.cells.copy()
+    
 
-def draw_fp(cells, icell=None):
-    fig = pl.figure(figsize=(8,8))
-    sp = fig.add_subplot(111)        
+def draw_fp(cells, icell=None, newfig=True, alpha=0.5):
+    import pylab as pl
+    import matplotlib
+    from matplotlib.patches import Rectangle, Polygon
+    from matplotlib.collections import PatchCollection
+    
+    if newfig:
+        fig = pl.figure(figsize=(8,8))
+        sp = fig.add_subplot(111)        
+    else:
+        fig = pl.gcf()
+        sp = pl.gca()
     l = []
     col = []
     for c in cells:
@@ -214,6 +256,6 @@ def draw_fp(cells, icell=None):
     pc = PatchCollection(l, alpha=0.5, lw=2)
     sp.add_collection(pc)
     pc.set_array(np.array(col))
-    pl.xlim((cells['p0'][:,0].min()-0.01, cells['p0'][:,0].max()+0.01))
-    pl.ylim((cells['p0'][:,1].min()-0.01, cells['p0'][:,1].max()+0.01))
+    pl.xlim((cells['p0'][:,0].min()-0.01, cells['p2'][:,0].max()+0.01))
+    pl.ylim((cells['p0'][:,1].min()-0.01, cells['p2'][:,1].max()+0.01))
     pl.show()
