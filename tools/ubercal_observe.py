@@ -104,6 +104,7 @@ def main_observe(log, nside, refpixs, nx=1, ny=1, fast=False):
         for c in cells:
             poly = np.vstack([c['p0'], c['p1'], c['p2'], c['p3']])
             try:
+                #                print poly
                 ipix = hp.query_polygon(nside, poly, nest=True, inclusive=False)
             except:
                 continue
