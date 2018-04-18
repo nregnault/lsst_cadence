@@ -167,8 +167,8 @@ class FocalPlane(object):
         cos0, sin0 = np.cos(dec0), np.sin(dec0)
         l,m,_ = xyz.T
         dec_t = cos0 - m * sin0
-        ra_t = (ra0 + np.arctan2(l, dec_t) + np.pi) % (2. * np.pi) - np.pi 
-        dec_t = (np.arctan2(np.cos(ra_t-ra0) * (m*cos0 + sin0), dec_t) + np.pi) % (2. * np.pi) - np.pi
+        ra_t = (ra0 + np.arctan2(l, dec_t) + np.pi) % (2. * np.pi) - np.pi                 
+        dec_t = np.arctan(np.cos(ra_t-ra0) * (m*cos0 + sin0) / dec_t)        
         return ra_t, dec_t
 
     def to_sky(self, cells, tp):
