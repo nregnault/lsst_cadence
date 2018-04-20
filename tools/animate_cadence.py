@@ -217,6 +217,9 @@ if __name__ == "__main__":
     parser.add_argument('--nsn',
                         default=None,
                         help='file containing the tabulated cumulative number of SNe')
+    parser.add_argument('--ebv-mask', 
+                        default=None, dest='ebv_mask',
+                        help='use pixel mask (generally E(B-V) mask)')
     parser.add_argument('obs_file',
                         help='observation log')
     args = parser.parse_args()
@@ -236,10 +239,19 @@ if __name__ == "__main__":
     else:
         nsn_func = None
         
+    if args.ebv_mask is not None:
+        mask = np.load(args.ebv_mask)
+        idx = mask[l['pixel']] == 1
+        l = l[idx]
+        logging.info('stripping masked pixels: %d -> %d' % (len(idx), len(l)))
+        
     #    m = Metrics(l)
     movie(l, bands='gri', dump_plot_dir=args.output_dir, nsn_func=nsn_func)
             
 
+    #    movie(l, bands='gri', dump_plot_dir=args.output_dir)
+    
+    
     # def accept(m):
     #     # more than 2 points before max
     #     # more than 7 points after max
