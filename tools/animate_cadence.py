@@ -10,6 +10,7 @@ import logging
 logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
                     level=logging.DEBUG)
 import argparse
+from mx.DateTime import DateTimeFromMJD
 
 import matplotlib
 matplotlib.use('Agg')
@@ -139,12 +140,21 @@ class Metrics(object):
         return plt.gcf()
 
 
-def movie(l, zmax=0.5, bands="gri", nside=64, dump_plot_dir=None):
+class CumulativeNumberOfSNe(object):
+    def __init__(self, z, nsn):
+        self.z = z
+        self.nsn = nsn
+    def __call__(self, zz):
+        return np.interp(zz, self.z, self.nsn, left=0.)
+    
+def movie(l, zmax=0.5, bands="gri", nside=64, dump_plot_dir=None, nsn_func=None):
     """
     make a movie of the fields that pass the cuts, up to a redshift z.
     """
 
     m = Metrics(l)
+    nsn_tot = np.zeros(m.npix)
+    nsn_inst = np.zeros(m.npix)
     
     for mjd in np.arange(m.mjd.min(), m.mjd.max()+1):
         zmax = np.zeros(m.npix)
@@ -176,12 +186,21 @@ def movie(l, zmax=0.5, bands="gri", nside=64, dump_plot_dir=None):
         # we update (1) a map that contains the total
         # number of SNe and (2) a NTuple that contains
         # mjd, nsn, zmax
-        
+        if nsn_func is not None:
+            nsn_inst[:] = 0.
+            nsn_inst[zmax>0.] = nsn_func(zmax[zmax>0])
+            nsn_tot[zmax>0.] += nsn_inst[zmax>0.]
+        else:
+            logging.warning('no function to compute number of SNe')
             
-        m.plot_map(first, fig=1, vmin=0., vmax=1.25, sub=221, cbar=False)
-        m.plot_map(last, fig=1, vmin=0., vmax=1.25, sub=222, cbar=False)
-        m.plot_map(zmax, fig=1, vmin=0., vmax=0.5, sub=223, cbar=True)        
-        m.plot_cadence(c, fig=1, dump_plot_dir=dump_plot_dir, title='%6.0f' % mjd,
+        #        m.plot_map(first, fig=1, vmin=0., vmax=1.25, sub=221, cbar=False)
+        #        m.plot_map(last, fig=1, vmin=0., vmax=1.25, sub=222, cbar=False)
+        fig = plt.gcf()
+        fig.suptitle('[%s  mjd=%6.0f]' % (DateTimeFromMJD(mjd).strftime('%Y-%m-%d'), mjd))
+        m.plot_map(nsn_tot, fit=1, vmin=0., sub=221, cbar=True)
+        m.plot_map(nsn_inst, fit=1, vmin=0., sub=222, cbar=False)        
+        m.plot_map(zmax, fig=1, vmin=0., vmax=0.5, sub=223, cbar=True)
+        m.plot_cadence(c, fig=1, dump_plot_dir=dump_plot_dir, 
                        vmin=0.,
                        vmax=1.25,
                        min_cadence=0.5,
@@ -195,6 +214,9 @@ if __name__ == "__main__":
     parser.add_argument('-O', '--output-dir',
                         default='./',
                         help='output directory (for the plots)')
+    parser.add_argument('--nsn',
+                        default=None,
+                        help='file containing the tabulated cumulative number of SNe')
     parser.add_argument('obs_file',
                         help='observation log')
     args = parser.parse_args()
@@ -207,12 +229,16 @@ if __name__ == "__main__":
 
     if not op.isdir(args.output_dir):
         os.makedirs(args.output_dir)
+
+    if args.nsn is not None:
+        f = np.load(args.nsn)
+        nsn_func = CumulativeNumberOfSNe(f['z'], f['nsn'])
+    else:
+        nsn_func = None
         
     #    m = Metrics(l)
-    movie(l, bands='gri', dump_plot_dir=args.output_dir)
-    
-    
-        
+    movie(l, bands='gri', dump_plot_dir=args.output_dir, nsn_func=nsn_func)
+            
 
     # def accept(m):
     #     # more than 2 points before max
