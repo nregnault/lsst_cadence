@@ -61,7 +61,11 @@ class Metrics(object):
                           (mjd_min, mjd_max))
             idx = (d['mjd']>=mjd_min) & (d['mjd']<=mjd_max)
             self.cache = d[idx]
+            self.cache['mjd'] = np.floor(self.cache['mjd'])
             self.cache_mjd_max = mjd_max
+            visits = np.rec.fromarrays((self.cache['pixel'], self.cache['mjd'], self.cache['band']),
+                                       names=['pixel', 'mjd', 'band'])
+            self.visit_cache = np.unique(visits)
         
     def select_window(self, mjd, **kwargs):
         z = kwargs.get('z', 0.)
@@ -71,22 +75,30 @@ class Metrics(object):
         idx = (self.cache['mjd']>mjd_min) & (self.cache['mjd']<mjd_max)
         if 'band' in kwargs:    
             idx &= (self.cache['band'] == kwargs['band'])
-        return self.cache[idx]
+        r = self.cache[idx]
+        
+        idx = (self.visit_cache['mjd']>mjd_min) & (self.visit_cache['mjd']<mjd_max)
+        if 'band' in kwargs:    
+            idx &= (self.visit_cache['band'] == kwargs['band'])
+        u = self.visit_cache[idx]
+        
+        return r,u
 
     def accept(self, pxobs):
         t = np.array([f(pxobs) for f in self.accept])
         return np.all(t)
     
-    def cadence(self, pxobs, **kwargs):
+    def cadence(self, mjd_px, **kwargs):
         """
         Note: if there are back-to-back exposures of the same field
         taken during one single night, then they should be counted at
         one single visit.
         """
         z = kwargs.get('z', 0.)
-        mjd_min, mjd_max = pxobs['mjd'].min(), pxobs['mjd'].max()
+        mjd_min, mjd_max = mjd_px['mjd'].min(), mjd_px['mjd'].max()
         dt = (mjd_max-mjd_min) / (1.+z)
-        c = np.bincount(pxobs['pixel'], minlength=self.npix).astype(float)
+        c = np.bincount(mjd_px['pixel'], minlength=self.npix).astype(float)
+        #        c = np.bincount(pxobs['pixel'], minlength=self.npix).astype(float)
         c /= dt
         return c
 
@@ -106,8 +118,8 @@ class Metrics(object):
         cc = c.copy()
         cc[cc==0.] = hp.UNSEEN            
         hp.mollview(cc, nest=1, fig=kwargs.get('fig', None),
-                    min=kwargs.get('vmin', 0.), 
-                    max=kwargs.get('vmax', 1.),
+                    min=kwargs.get('vmin', None), 
+                    max=kwargs.get('vmax', None),
                     sub=kwargs.get('sub', None),
                     cbar=kwargs.get('cbar', True))
         plt.title(kwargs.get('title', ''))
@@ -127,8 +139,8 @@ class Metrics(object):
             cc[cc<kwargs['min_cadence']] = 0.
         cc[cc==0.] = hp.UNSEEN            
         hp.mollview(cc, nest=1, fig=kwargs.get('fig', None),
-                    min=kwargs.get('vmin', 0.), 
-                    max=kwargs.get('vmax', 1.),
+                    min=kwargs.get('vmin', None), 
+                    max=kwargs.get('vmax', None),
                     sub=kwargs.get('sub', None),
                     cbar=kwargs.get('cbar', True))
         plt.title(kwargs.get('title', ''))
@@ -161,8 +173,8 @@ def movie(l, zmax=0.5, bands="gri", nside=64, dump_plot_dir=None, nsn_func=None)
         nsn  = np.zeros(m.npix)
         
         # check that the sampling is ok at z=0
-        s = m.select_window(mjd, z=0.)
-        c = m.cadence(s, z=0.)
+        s,u = m.select_window(mjd, z=0.)
+        c = m.cadence(u, z=0.)
         first, last = m.first_last_visits(mjd, s, z=0.)
         c[c<0.5] = 0.
         c[first==0.] = 0.
@@ -173,8 +185,8 @@ def movie(l, zmax=0.5, bands="gri", nside=64, dump_plot_dir=None, nsn_func=None)
         # color as a function of redshift. Store the highest redshift
         # that passes the cuts 
         for z in np.arange(0.3, 0.51, 0.01)[::-1]:
-            s = m.select_window(mjd, z=z)
-            cz = m.cadence(s, z=z)
+            s,u = m.select_window(mjd, z=z)
+            cz = m.cadence(u, z=z)
             firstz, lastz = m.first_last_visits(mjd, s, z=z)
             cz[(cz<0.5)] = 0.
             cz[(firstz==0.)] = 0.
