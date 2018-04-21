@@ -50,8 +50,8 @@ class Metrics(object):
         self.cache_mjd_min = 0.
         self.cache_mjd_max = 0.
         self.cache = None
-
-    def _update_cache(self, mjd_min, mjd_max):
+        
+    def _update_cache(self, mjd_min, mjd_max, **kwargs):
         if self.cache is None or \
            (mjd_max > self.cache_mjd_max) or \
            (mjd_min < self.cache_mjd_min):
@@ -60,6 +60,9 @@ class Metrics(object):
             logging.debug('cache fault -> updating [%7.0f,%7.0f]' % \
                           (mjd_min, mjd_max))
             idx = (d['mjd']>=mjd_min) & (d['mjd']<=mjd_max)
+            if 'bands' in kwargs:
+                for b in bands:
+                    idx &= (d['band'] == b)
             self.cache = d[idx]
             self.cache['mjd'] = np.floor(self.cache['mjd'])
             self.cache_mjd_max = mjd_max
@@ -70,7 +73,7 @@ class Metrics(object):
     def select_window(self, mjd, **kwargs):
         z = kwargs.get('z', 0.)
         mjd_min, mjd_max = mjd + self.rf_phase_range * (1.+z)
-        self._update_cache(mjd_min, mjd_max)
+        self._update_cache(mjd_min, mjd_max, **kwargs)
         logging.debug('z: %5.2f mjd: [%f,%f]' % (z, mjd_min, mjd_max))
         idx = (self.cache['mjd']>mjd_min) & (self.cache['mjd']<mjd_max)
         if 'band' in kwargs:    
@@ -159,7 +162,7 @@ class CumulativeNumberOfSNe(object):
     def __call__(self, zz):
         return np.interp(zz, self.z, self.nsn, left=0.)
     
-def movie(l, zmax=0.5, bands="gri", nside=64, dump_plot_dir=None, nsn_func=None):
+def movie(l, zmax=0.5, bands="gri", nside=64, dump_plot_dir=None, nsn_func=None, bands=['g', 'r', 'i', 'z']):
     """
     make a movie of the fields that pass the cuts, up to a redshift z.
     """
@@ -173,9 +176,9 @@ def movie(l, zmax=0.5, bands="gri", nside=64, dump_plot_dir=None, nsn_func=None)
         nsn  = np.zeros(m.npix)
         
         # check that the sampling is ok at z=0
-        s,u = m.select_window(mjd, z=0.)
+        s,u = m.select_window(mjd, z=0., bands=bands)
         c = m.cadence(u, z=0.)
-        first, last = m.first_last_visits(mjd, s, z=0.)
+        first, last = m.first_last_visits(mjd, u, z=0.)
         c[c<0.5] = 0.
         c[first==0.] = 0.
         c[last==0.] = 0.
@@ -187,7 +190,7 @@ def movie(l, zmax=0.5, bands="gri", nside=64, dump_plot_dir=None, nsn_func=None)
         for z in np.arange(0.3, 0.51, 0.01)[::-1]:
             s,u = m.select_window(mjd, z=z)
             cz = m.cadence(u, z=z)
-            firstz, lastz = m.first_last_visits(mjd, s, z=z)
+            firstz, lastz = m.first_last_visits(mjd, u, z=z)
             cz[(cz<0.5)] = 0.
             cz[(firstz==0.)] = 0.
             cz[(lastz==0)] = 0.
@@ -209,7 +212,7 @@ def movie(l, zmax=0.5, bands="gri", nside=64, dump_plot_dir=None, nsn_func=None)
         #        m.plot_map(last, fig=1, vmin=0., vmax=1.25, sub=222, cbar=False)
         fig = plt.gcf()
         fig.suptitle('[%s  mjd=%6.0f]' % (DateTimeFromMJD(mjd).strftime('%Y-%m-%d'), mjd))
-        m.plot_map(nsn_tot, fit=1, sub=221, cbar=True, title='NSN: %6.0f' % nsn_tot.sum())
+        m.plot_map(nsn_tot, fit=1, sub=221, vmin=0., vmax=100., cbar=True, title='NSN: %6.0f' % nsn_tot.sum())
         m.plot_map(nsn_inst, fit=1, sub=222, cbar=False, title='NSN[%6.0f]: %4.0f' % (mjd, nsn_inst.sum()))
         m.plot_map(zmax, fig=1, vmin=0., vmax=0.5, sub=223, cbar=True, title='zmax')
         m.plot_cadence(c, fig=1, dump_plot_dir=dump_plot_dir, 
@@ -242,7 +245,7 @@ if __name__ == "__main__":
     #    m = f['m']
     #    hp.mollview(m, nest=1)
     l = f['l']
-
+    
     if not op.isdir(args.output_dir):
         os.makedirs(args.output_dir)
 
@@ -259,7 +262,7 @@ if __name__ == "__main__":
         logging.info('stripping masked pixels: %d -> %d' % (len(idx), len(l)))
         
     #    m = Metrics(l)
-    movie(l, bands='gri', dump_plot_dir=args.output_dir, nsn_func=nsn_func)
+    movie(l, bands='gri', dump_plot_dir=args.output_dir, nsn_func=nsn_func, bands=['g', 'r', 'i', 'z'])
             
 
     #    movie(l, bands='gri', dump_plot_dir=args.output_dir)
