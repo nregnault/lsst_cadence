@@ -197,14 +197,15 @@ def movie(l, zmax=0.5, bands="gri", nside=64, dump_plot_dir=None, nsn_func=None)
         #        m.plot_map(last, fig=1, vmin=0., vmax=1.25, sub=222, cbar=False)
         fig = plt.gcf()
         fig.suptitle('[%s  mjd=%6.0f]' % (DateTimeFromMJD(mjd).strftime('%Y-%m-%d'), mjd))
-        m.plot_map(nsn_tot, fit=1, vmin=0., sub=221, cbar=True)
-        m.plot_map(nsn_inst, fit=1, vmin=0., sub=222, cbar=False)        
-        m.plot_map(zmax, fig=1, vmin=0., vmax=0.5, sub=223, cbar=True)
+        m.plot_map(nsn_tot, fit=1, sub=221, cbar=True, title='NSN: %6.0f' % nsn_tot.sum())
+        m.plot_map(nsn_inst, fit=1, sub=222, cbar=False, title='NSN[%6.0f]: %4.0f' % (mjd, nsn_inst.sum()))
+        m.plot_map(zmax, fig=1, vmin=0., vmax=0.5, sub=223, cbar=True, title='zmax')
         m.plot_cadence(c, fig=1, dump_plot_dir=dump_plot_dir, 
                        vmin=0.,
                        vmax=1.25,
                        min_cadence=0.5,
                        sub=224,
+                       title='cadence',
                        cbar=True)
 
 
