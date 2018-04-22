@@ -17,6 +17,14 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 plt.interactive(0)
 
+matplotlib.rcParams['text.latex.preamble'] = [
+    r'\usepackage{siunitx}',   # i need upright \micro symbols, but you need...
+    r'\sisetup{detect-all}',   # ...this to force siunitx to actually use your fonts
+    r'\usepackage{helvet}',    # set the normal font here
+    r'\usepackage{sansmath}',  # load up the sansmath so that math -> helvet
+    r'\sansmath'               # <- tricky! -- gotta actually tell tex to use!
+]
+
 import numpy as np
 import healpy as hp
 
@@ -60,9 +68,9 @@ class Metrics(object):
             logging.debug('cache fault -> updating [%7.0f,%7.0f]' % \
                           (mjd_min, mjd_max))
             idx = (d['mjd']>=mjd_min) & (d['mjd']<=mjd_max)
-            if 'bands' in kwargs:
-                for b in bands:
-                    idx &= (d['band'] == b)
+            if 'exclude_bands' in kwargs:
+                for b in kwargs['exclude_bands']:
+                    idx &= (d['band'] != b)
             self.cache = d[idx]
             self.cache['mjd'] = np.floor(self.cache['mjd'])
             self.cache_mjd_max = mjd_max
@@ -162,11 +170,11 @@ class CumulativeNumberOfSNe(object):
     def __call__(self, zz):
         return np.interp(zz, self.z, self.nsn, left=0.)
     
-def movie(l, zmax=0.5, bands="gri", nside=64, dump_plot_dir=None, nsn_func=None, bands=['g', 'r', 'i', 'z']):
+def movie(l, zmax=0.5, nside=64, dump_plot_dir=None, nsn_func=None, bands=['g', 'r', 'i', 'z'], exclude_bands=['u', 'y'], vmax_nsn=None, min_cadence=0.5):
     """
     make a movie of the fields that pass the cuts, up to a redshift z.
     """
-
+    
     m = Metrics(l)
     nsn_tot = np.zeros(m.npix)
     nsn_inst = np.zeros(m.npix)
@@ -176,10 +184,10 @@ def movie(l, zmax=0.5, bands="gri", nside=64, dump_plot_dir=None, nsn_func=None,
         nsn  = np.zeros(m.npix)
         
         # check that the sampling is ok at z=0
-        s,u = m.select_window(mjd, z=0., bands=bands)
+        s,u = m.select_window(mjd, z=0., bands=bands, exclude_bands=exclude_bands)
         c = m.cadence(u, z=0.)
         first, last = m.first_last_visits(mjd, u, z=0.)
-        c[c<0.5] = 0.
+        c[c<min_cadence] = 0.
         c[first==0.] = 0.
         c[last==0.] = 0.
         c0_ok = c>0.
@@ -188,7 +196,7 @@ def movie(l, zmax=0.5, bands="gri", nside=64, dump_plot_dir=None, nsn_func=None,
         # color as a function of redshift. Store the highest redshift
         # that passes the cuts 
         for z in np.arange(0.3, 0.51, 0.01)[::-1]:
-            s,u = m.select_window(mjd, z=z)
+            s,u = m.select_window(mjd, z=z, exclude_bands=exclude_bands)
             cz = m.cadence(u, z=z)
             firstz, lastz = m.first_last_visits(mjd, u, z=z)
             cz[(cz<0.5)] = 0.
@@ -211,16 +219,17 @@ def movie(l, zmax=0.5, bands="gri", nside=64, dump_plot_dir=None, nsn_func=None,
         #        m.plot_map(first, fig=1, vmin=0., vmax=1.25, sub=221, cbar=False)
         #        m.plot_map(last, fig=1, vmin=0., vmax=1.25, sub=222, cbar=False)
         fig = plt.gcf()
-        fig.suptitle('[%s  mjd=%6.0f]' % (DateTimeFromMJD(mjd).strftime('%Y-%m-%d'), mjd))
-        m.plot_map(nsn_tot, fit=1, sub=221, vmin=0., vmax=100., cbar=True, title='NSN: %6.0f' % nsn_tot.sum())
-        m.plot_map(nsn_inst, fit=1, sub=222, cbar=False, title='NSN[%6.0f]: %4.0f' % (mjd, nsn_inst.sum()))
-        m.plot_map(zmax, fig=1, vmin=0., vmax=0.5, sub=223, cbar=True, title='zmax')
+        human_date = DateTimeFromMJD(mjd).strftime('%Y-%m-%d')
+        fig.suptitle('[%s  mjd=%6.0f]' % (human_date, mjd))
+        m.plot_map(nsn_tot, fit=1, sub=221, vmin=0., vmax=vmax_nsn, cbar=True, title='$N_{SNe}: %6.0f$' % nsn_tot.sum())
+        m.plot_map(nsn_inst, fit=1, sub=222, vmin=0., cbar=False, title='$N_{SNe}[%s]: %4.0f$' % (human_date, nsn_inst.sum()))
+        m.plot_map(zmax, fig=1, vmin=0., vmax=0.5, sub=223, cbar=True, title='$z_{max}$')
         m.plot_cadence(c, fig=1, dump_plot_dir=dump_plot_dir, 
                        vmin=0.,
-                       vmax=1.25,
+                       vmax=1.,
                        min_cadence=0.5,
                        sub=224,
-                       title='cadence',
+                       title='cadence [day$^{-1}$]',
                        cbar=True)
 
 
@@ -236,6 +245,12 @@ if __name__ == "__main__":
     parser.add_argument('--ebv-mask', 
                         default=None, dest='ebv_mask',
                         help='use pixel mask (generally E(B-V) mask)')
+    parser.add_argument('--vmax_nsn', 
+                        default=None, dest='vmax_nsn', type=float,
+                        help='tune the vmax for the nsn_tot map')
+    parser.add_argument('--min_cadence', 
+                        default=0.5, dest='min_cadence', type=float,
+                        help='discard pixels with cadence < min_cadence')
     parser.add_argument('obs_file',
                         help='observation log')
     args = parser.parse_args()
@@ -262,7 +277,7 @@ if __name__ == "__main__":
         logging.info('stripping masked pixels: %d -> %d' % (len(idx), len(l)))
         
     #    m = Metrics(l)
-    movie(l, bands='gri', dump_plot_dir=args.output_dir, nsn_func=nsn_func, bands=['g', 'r', 'i', 'z'])
+    movie(l, dump_plot_dir=args.output_dir, nsn_func=nsn_func, vmax_nsn=args.vmax_nsn, bands=['g', 'r', 'i', 'z'], min_cadence=args.min_cadence)
             
 
     #    movie(l, bands='gri', dump_plot_dir=args.output_dir)
