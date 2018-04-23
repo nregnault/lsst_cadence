@@ -43,7 +43,11 @@ OBS_DTYPE=np.dtype([('expnum', 'i4'), ('cell', 'i2'),
                     ('band', '|S5'),
                     ('refstar', 'i2'),
                     ('refcell', 'i2'),
-                    ('gridobs', 'i2')])
+                    ('gridobs', 'i2'),
+                    ('sky', 'f8'),
+                    ('seeing', 'f8'),
+                    ('m5', 'f8'),
+                    ('exptime', 'f4')])
 
 
 def main_observe(log, nside, refpixs, nx=1, ny=1, fast=False):
@@ -90,9 +94,9 @@ def main_observe(log, nside, refpixs, nx=1, ny=1, fast=False):
     #                     gridobs,
     #                     rotation)).T
     n = len(log)
-    coords = np.rec.fromarrays((np.arange(n), log['Ra'], log['Dec'], log['mjd'], log['band'], iexp, gridobs, rotation))
+    coords = np.rec.fromarrays((np.arange(n), log['Ra'], log['Dec'], log['mjd'], log['band'], iexp, gridobs, rotation, log['sky'], log['seeingFwhmEff'], log['fiveSigmaDepth'], log['exptime']))
     #    for i,(r,d,mjd,band,iexp,gridobs,angle) in enumerate(coords):
-    for (i,r,d,mjd,band,iexp,gridobs,angle) in coords:
+    for (i,r,d,mjd,band,iexp,gridobs,angle, sky, seeing, m5, exptime) in coords:
         if i%100 == 0:
             logging.info('exposure: % 6d [RA=% 6.6f DEC=% +6.5f]' % (i,r,d))
         cells = p.copy()
@@ -117,6 +121,10 @@ def main_observe(log, nside, refpixs, nx=1, ny=1, fast=False):
             z['mjd'] = mjd
             z['gridobs'] = gridobs
             z['band'] = band
+            z['sky'] = sky
+            z['seeing'] = seeing
+            z['m5'] = m5
+            z['exptime'] = exptime
             l.append(z)
             
         
