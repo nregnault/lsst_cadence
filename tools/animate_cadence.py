@@ -199,7 +199,7 @@ def movie(l, zmax=0.5, nside=64, dump_plot_dir=None, nsn_func=None, bands=['g', 
             s,u = m.select_window(mjd, z=z, exclude_bands=exclude_bands)
             cz = m.cadence(u, z=z)
             firstz, lastz = m.first_last_visits(mjd, u, z=z)
-            cz[(cz<0.5)] = 0.
+            cz[(cz<min_cadence)] = 0.
             cz[(firstz==0.)] = 0.
             cz[(lastz==0)] = 0.
             cz *= c0_ok
@@ -227,7 +227,7 @@ def movie(l, zmax=0.5, nside=64, dump_plot_dir=None, nsn_func=None, bands=['g', 
         m.plot_cadence(c, fig=1, dump_plot_dir=dump_plot_dir, 
                        vmin=0.,
                        vmax=1.,
-                       min_cadence=0.5,
+                       min_cadence=min_cadence,
                        sub=224,
                        title='cadence [day$^{-1}$]',
                        cbar=True)
