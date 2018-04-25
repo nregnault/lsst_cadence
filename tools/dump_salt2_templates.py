@@ -19,7 +19,7 @@ cosmo = CosmoLambda()
 def get_pulse_shapes(bands,
                      X1=-2., Color=0.2, DayMax=0.,                     
                      restframe_phase_range=(-20., 45.),
-                     redshifts=np.arange(0.05, 1.2, 0.05),
+                     redshifts=np.arange(0.05, 1.2, 0.01),
                      filename='salt2.npz'):
     """
     """
@@ -46,4 +46,7 @@ def get_pulse_shapes(bands,
 
 
 if __name__ == "__main__":
-    pass
+    bands = ['LSSTPG::' + b for b in "grizy"]
+    r = get_pulse_shapes(bands)
+    np.save('lc_templates.npy', r)
+    
