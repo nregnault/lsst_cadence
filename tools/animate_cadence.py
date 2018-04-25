@@ -28,6 +28,8 @@ matplotlib.rcParams['text.latex.preamble'] = [
 import numpy as np
 import healpy as hp
 
+from saunerie import psf, snsim
+from pycosmo import cosmo
 
 
 
@@ -42,7 +44,7 @@ def main(filename='h.npy.npz'):
 
 class Metrics(object):
     
-    def __init__(self, pxlobs, z=0.5, rf_phase_range=(-20., 35.), nside=64):
+    def __init__(self, pxlobs, z=0.5, rf_phase_range=(-20., 35.), nside=64, etc=None, lc_template=None, model_filename=None):
         """
         Constructor. Takes a file 
         """
@@ -54,11 +56,58 @@ class Metrics(object):
         self.min_rf_phase_range = np.array(rf_phase_range) + np.array([5., -5.])
         self.accept = []
         self.fig_odometer = 0
-        #        self.cache_mjd_window = np.array((-50., +150.))
         self.cache_mjd_min = 0.
         self.cache_mjd_max = 0.
         self.cache = None
         
+        # add an etc
+        logging.info('loading ETC')
+        self.etc = psf.find('LSSTPG') if etc is None else etc
+        suffix = self.etc.instrument.name + '::'
+        self.pixel_obs['bandname'][:] = np.core.defchararray.add(suffix, self.pixel_obs['band'])
+        
+        # add a LC model
+        self.sn = np.rec.fromarrays(([0.] * 7),
+                                    names=['z', 'dL', 'DayMax', 'X1', 'Color', 'ra', 'dec'])
+        self.sn['X1'], self.sn['Color'] = -2., 0.2
+        logging.info('instantiating Cosmo model')
+        self.cosmo = cosmo.CosmoLambda()
+        logging.info('loading SALT2 from: %s' % model_filename)
+        #        self.lcmodel = snsim.init_lc_model(np.unique(self.pixel_obs['bandname']),
+        #                                           model_filename)
+        logging.info('done.')        
+        
+        # add something to manage the LC templates
+        #        print lc_template
+        if lc_template is not None:
+            self.lc_template_cache = self._build_lc_template_cache(lc_template)
+        else:
+            self.lc_template_cache = None
+
+    def _build_lc_template_cache(self, lc_template):
+        logging.info('building light curve template cache from: %s' % lc_template)
+        d = np.load(lc_template) if type(lc_template) is str else lc_template
+        ret = {}
+        bands = np.unique(d['band'])
+        redshifts = np.unique(d['z'])
+        for b in bands:
+            for z in redshifts:
+                key = '%5.3f-%s' % (z,b)
+                idx = (d['band'] == b) & (d['z'] == z)
+                if idx.sum() == 0:
+                    logging.warning('skipped %r (no entries)' % key)
+                    continue
+                t,v = d[idx]['mjd'], d[idx]['val']
+                ret[key] = (t,v)
+        logging.info('Done. Cache has %d entries' % len(ret))
+        return ret
+
+    def get_lc_template(self, band=None, z=None):
+        key = '%5.3f-%s' % (z,band)
+        r = self.lc_template_cache.get(key, (None,None))
+        #        print key, self.lc_template_cache.keys()
+        return r
+    
     def _update_cache(self, mjd_min, mjd_max, **kwargs):
         if self.cache is None or \
            (mjd_max > self.cache_mjd_max) or \
@@ -121,7 +170,40 @@ class Metrics(object):
         c_min = np.bincount(pxobs['pixel'][idx_min], minlength=self.npix).astype(float)
         c_max = np.bincount(pxobs['pixel'][idx_max], minlength=self.npix).astype(float)        
         return c_min, c_max
-        
+
+    def amplitude_snr(self, mjd, bandname, z, px_obs):
+        c = np.zeros(self.npix)
+        p_tpl, v_tpl = self.get_lc_template(band=bandname,z=z)
+        if p_tpl is None or v_tpl is None:
+            logging.warning('unable to find LC template for (%s,%f)' % (band,z))
+            return None
+        #        self.sn['z'] = z
+        #        self.sn['dL'] = self.cosmo.dL(z)
+        d = px_obs[px_obs['bandname'] == bandname]
+        f5 = self.etc.mag_to_flux(d['m5'], d['bandname'])
+        Li = np.interp(d['mjd']-mjd, p_tpl, v_tpl, left=0., right=0.)
+        #        Li = self.lcmodel(self.sn, d['mjd'], d['bandname'], jac=False)
+        v = (Li/f5)**2
+        snr = np.bincount(d['pixel'], weights=v, minlength=self.npix)
+        #        print ' --> ', np.median(snr)
+        return 5. * np.sqrt(snr)
+
+    def cut_on_amplitude_snr(self, mjd, z, px_obs, snr_cuts):
+        r, observed = np.ones(self.npix), np.zeros(self.npix)
+        for band in snr_cuts.keys():
+            snr = self.amplitude_snr(mjd, band, z, px_obs)
+            #            print np.mean(snr), snr_cuts[band], np.sum(snr<snr_cuts[band])
+            r[snr<snr_cuts[band]] = 0.
+            observed[snr>0.] = 1
+        r *= observed
+        return r
+    
+    def sigma_color(self, mjd, px_obs, z):
+        """
+        Using SALT2 directly
+        """
+        pass
+    
     def plot_map(self, c, **kwargs):
         """
         plot the cadence on the pixellized sphere. 
@@ -136,8 +218,8 @@ class Metrics(object):
         plt.title(kwargs.get('title', ''))
         if 'dump_plot_dir' in kwargs:
             fig = plt.gcf()
-            fig.savefig(kwargs['dump_plot_dir'] + os.sep + '%05d.png' % self.fig_odometer)
-            self.fig_odometer += 1
+            prefix = kwargs.get('prefix', '')
+            fig.savefig(kwargs['dump_plot_dir'] + os.sep + prefix + '%05d.png' % self.fig_odometer)
             fig.clear()
         return plt.gcf()
 
@@ -158,7 +240,6 @@ class Metrics(object):
         if 'dump_plot_dir' in kwargs:
             fig = plt.gcf()
             fig.savefig(kwargs['dump_plot_dir'] + os.sep + '%05d.png' % self.fig_odometer)
-            self.fig_odometer += 1
             fig.clear()        
         return plt.gcf()
 
@@ -170,12 +251,18 @@ class CumulativeNumberOfSNe(object):
     def __call__(self, zz):
         return np.interp(zz, self.z, self.nsn, left=0.)
     
-def movie(l, zmax=0.5, nside=64, dump_plot_dir=None, nsn_func=None, bands=['g', 'r', 'i', 'z'], exclude_bands=['u', 'y'], vmax_nsn=None, min_cadence=0.5):
+def movie(l, zmax=0.5, nside=64, dump_plot_dir=None, nsn_func=None,
+          bands=['g', 'r', 'i', 'z'],
+          exclude_bands=['u', 'y'],
+          vmax_nsn=None,
+          min_cadence=0.5,
+          lc_template=None,
+          salt2=None):
     """
     make a movie of the fields that pass the cuts, up to a redshift z.
     """
     
-    m = Metrics(l)
+    m = Metrics(l, model_filename=salt2, lc_template=lc_template)
     nsn_tot = np.zeros(m.npix)
     nsn_inst = np.zeros(m.npix)
     
@@ -195,15 +282,37 @@ def movie(l, zmax=0.5, nside=64, dump_plot_dir=None, nsn_func=None, bands=['g', 
         # loop over the redshift range, and check the resolution in
         # color as a function of redshift. Store the highest redshift
         # that passes the cuts 
-        for z in np.arange(0.3, 0.51, 0.01)[::-1]:
+        for z in np.arange(0.1, 0.51, 0.01)[::-1]:
+            # select the window 
             s,u = m.select_window(mjd, z=z, exclude_bands=exclude_bands)
+            
+            # average cadence
+            # note: explore median dt
             cz = m.cadence(u, z=z)
+            
+            # observations before -15 and after +30 ? 
             firstz, lastz = m.first_last_visits(mjd, u, z=z)
-            cz[(cz<0.5)] = 0.
+            
+            # cut in cadence 
+            cz[(cz<min_cadence)] = 0.
+            
+            # cut on the last visit
             cz[(firstz==0.)] = 0.
             cz[(lastz==0)] = 0.
             cz *= c0_ok
-            zmax[(cz>0) & (zmax==0.)] = z
+
+            # cut on sigma amplitude
+            if np.abs(z-0.3) <= 0.01:
+                snr_g = m.amplitude_snr(mjd, 'LSSTPG::g', z, s)
+                snr_r = m.amplitude_snr(mjd, 'LSSTPG::r', z, s)
+                snr_i = m.amplitude_snr(mjd, 'LSSTPG::i', z, s)
+                snr_z = m.amplitude_snr(mjd, 'LSSTPG::z', z, s)                
+            snr_ok = m.cut_on_amplitude_snr(mjd, z, s, snr_cuts={'LSSTPG::g': 10., 'LSSTPG::r': 10., 'LSSTPG::i': 10.,
+                                                                 #                                                                 'LSSTPG::z': 20.
+            })
+            
+            # update max-z map 
+            zmax[(cz>0) & (snr_ok>0.) & (zmax==0.)] = z
             c[c==0] = cz[c==0]
         # update the number of supernovae for that day 
         # we update (1) a map that contains the total
@@ -218,12 +327,12 @@ def movie(l, zmax=0.5, nside=64, dump_plot_dir=None, nsn_func=None, bands=['g', 
             
         #        m.plot_map(first, fig=1, vmin=0., vmax=1.25, sub=221, cbar=False)
         #        m.plot_map(last, fig=1, vmin=0., vmax=1.25, sub=222, cbar=False)
-        fig = plt.gcf()
+        fig = plt.figure(1)
         human_date = DateTimeFromMJD(mjd).strftime('%Y-%m-%d')
         fig.suptitle('[%s  mjd=%6.0f]' % (human_date, mjd))
-        m.plot_map(nsn_tot, fit=1, sub=221, vmin=0., vmax=vmax_nsn, cbar=True, title='$N_{SNe}: %6.0f$' % nsn_tot.sum())
-        m.plot_map(nsn_inst, fit=1, sub=222, vmin=0., cbar=False, title='$N_{SNe}[%s]: %4.0f$' % (human_date, nsn_inst.sum()))
-        m.plot_map(zmax, fig=1, vmin=0., vmax=0.5, sub=223, cbar=True, title='$z_{max}$')
+        m.plot_map(nsn_tot, fig=1, sub=221, vmin=0., vmax=vmax_nsn, cbar=True, title='$N_{SNe}: %6.0f$' % nsn_tot.sum())
+        m.plot_map(nsn_inst, fig=1, sub=222, vmin=0., cbar=False, title='$N_{SNe}[%s]: %4.0f$' % (human_date, nsn_inst.sum()))
+        m.plot_map(zmax, fig=1, vmin=0., vmax=0.5, sub=223, cbar=True, title='$z_{max}$')        
         m.plot_cadence(c, fig=1, dump_plot_dir=dump_plot_dir, 
                        vmin=0.,
                        vmax=1.,
@@ -232,8 +341,15 @@ def movie(l, zmax=0.5, nside=64, dump_plot_dir=None, nsn_func=None, bands=['g', 
                        title='cadence [day$^{-1}$]',
                        cbar=True)
 
+        fig = plt.figure(2)
+        m.plot_map(snr_g, fig=2, sub=221, vmin=0., vmax=30., cbar=True, title='SNR[g]')
+        m.plot_map(snr_r, fig=2, sub=222, vmin=0., vmax=40., cbar=True, title='SNR[r]')
+        m.plot_map(snr_i, fig=2, sub=223, vmin=0., vmax=30., cbar=True, title='SNR[i]')        
+        m.plot_map(snr_z, fig=2, sub=224, vmin=0., vmax=20., cbar=True, title='SNR[z]', dump_plot_dir=dump_plot_dir, prefix='snr')
 
-
+        m.fig_odometer += 1
+        
+        
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="make a movie out of a cadence")
     parser.add_argument('-O', '--output-dir',
@@ -251,6 +367,12 @@ if __name__ == "__main__":
     parser.add_argument('--min_cadence', 
                         default=0.5, dest='min_cadence', type=float,
                         help='discard pixels with cadence < min_cadence')
+    parser.add_argument('--salt2', 
+                        default='salt2.npz', dest='salt2', type=str,
+                        help='SALT2 model')
+    parser.add_argument('--lc_template', 
+                        dest='lc_template', type=str,
+                        help='light curve template (generated from SALT2)')
     parser.add_argument('obs_file',
                         help='observation log')
     args = parser.parse_args()
@@ -277,11 +399,12 @@ if __name__ == "__main__":
         logging.info('stripping masked pixels: %d -> %d' % (len(idx), len(l)))
         
     #    m = Metrics(l)
-    movie(l, dump_plot_dir=args.output_dir, nsn_func=nsn_func, vmax_nsn=args.vmax_nsn, bands=['g', 'r', 'i', 'z'], min_cadence=args.min_cadence)
-            
-
-    #    movie(l, bands='gri', dump_plot_dir=args.output_dir)
+    movie(l, dump_plot_dir=args.output_dir, nsn_func=nsn_func, vmax_nsn=args.vmax_nsn, bands=['g', 'r', 'i', 'z'],
+          salt2=args.salt2,
+          lc_template=args.lc_template,
+          min_cadence=args.min_cadence)
     
+    #    movie(l, bands='gri', dump_plot_dir=args.output_dir)
     
     # def accept(m):
     #     # more than 2 points before max
