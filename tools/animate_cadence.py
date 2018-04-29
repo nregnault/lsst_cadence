@@ -265,7 +265,13 @@ def movie(l, zmax=0.5, nside=64, dump_plot_dir=None, nsn_func=None,
     m = Metrics(l, model_filename=salt2, lc_template=lc_template)
     nsn_tot = np.zeros(m.npix)
     nsn_inst = np.zeros(m.npix)
+    cadence_tot = np.zeros(m.npix)
+    cadence_nhits = np.zeros(m.npix)    
+    zmax_tot = np.zeros(m.npix)
+    zmax_nhits = np.zeros(m.npix)
+    tmp_map = np.zeros(m.npix)
     
+    # loop on the survey mjd -- by steps of 1 day
     for mjd in np.arange(m.mjd.min(), m.mjd.max()+1):
         zmax = np.zeros(m.npix)
         nsn  = np.zeros(m.npix)
@@ -324,24 +330,38 @@ def movie(l, zmax=0.5, nside=64, dump_plot_dir=None, nsn_func=None,
             nsn_tot[zmax>0.] += nsn_inst[zmax>0.]
         else:
             logging.warning('no function to compute number of SNe')
+
+        # update the cumulative maps
+        cadence_tot += c
+        cadence_nhits[c>0] += 1
+        zmax_tot += zmax
+        zmax_nhits[zmax>0] += 1
             
         #        m.plot_map(first, fig=1, vmin=0., vmax=1.25, sub=221, cbar=False)
         #        m.plot_map(last, fig=1, vmin=0., vmax=1.25, sub=222, cbar=False)
-        fig = plt.figure(1)
+        fig = plt.figure(1, figsize=(15.,7.5))
         human_date = DateTimeFromMJD(mjd).strftime('%Y-%m-%d')
         fig.suptitle('[%s  mjd=%6.0f]' % (human_date, mjd))
-        m.plot_map(nsn_tot, fig=1, sub=221, vmin=0., vmax=vmax_nsn, cbar=True, title='$N_{SNe}: %6.0f$' % nsn_tot.sum())
-        m.plot_map(nsn_inst, fig=1, sub=222, vmin=0., cbar=False, title='$N_{SNe}[%s]: %4.0f$' % (human_date, nsn_inst.sum()))
-        m.plot_map(zmax, fig=1, vmin=0., vmax=0.5, sub=223, cbar=True, title='$z_{max}$')        
+        m.plot_map(nsn_tot, fig=1, sub=231, vmin=0., vmax=vmax_nsn, cbar=True, title='$\int N_{SNe}: %6.0f$' % nsn_tot.sum())
+        tmp_map[:] = hp.UNSEEN ; idx = zmax_nhits>0
+        tmp_map[idx] = zmax_tot[idx] / zmax_nhits[idx]
+        m.plot_map(tmp_map, fig=1, sub=232, vmin=0., vmax=0.5, cbar=True, title='$z_{max}$ (avg)')
+        tmp_map[:] = hp.UNSEEN ; idx = cadence_nhits>0
+        tmp_map[idx] = cadence_tot[idx] / cadence_nhits[idx]        
+        m.plot_map(tmp_map, fig=1, sub=233, vmin=0., vmax=1., cbar=True, title='cadence [day$^{-1}$] (avg)')
+        
+        m.plot_map(nsn_inst, fig=1, sub=234, vmin=0., cbar=True, title='$N_{SNe}: %4.0f$' % nsn_inst.sum())
+        m.plot_map(zmax, fig=1, vmin=0., vmax=0.5, sub=235, cbar=True, title='$z_{max}$')        
         m.plot_cadence(c, fig=1, dump_plot_dir=dump_plot_dir, 
                        vmin=0.,
                        vmax=1.,
                        min_cadence=0.5,
-                       sub=224,
+                       sub=236,
                        title='cadence [day$^{-1}$]',
                        cbar=True)
 
         fig = plt.figure(2)
+        fig.suptitle('[%s  mjd=%6.0f]' % (human_date, mjd))
         m.plot_map(snr_g, fig=2, sub=221, vmin=0., vmax=30., cbar=True, title='SNR[g]')
         m.plot_map(snr_r, fig=2, sub=222, vmin=0., vmax=40., cbar=True, title='SNR[r]')
         m.plot_map(snr_i, fig=2, sub=223, vmin=0., vmax=30., cbar=True, title='SNR[i]')        
