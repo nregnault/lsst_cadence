@@ -306,9 +306,9 @@ def movie(l, zmax=0.5, nside=64, dump_plot_dir=None, nsn_func=None,
                 snr_r = m.amplitude_snr(mjd, 'LSSTPG::r', z, s)
                 snr_i = m.amplitude_snr(mjd, 'LSSTPG::i', z, s)
                 snr_z = m.amplitude_snr(mjd, 'LSSTPG::z', z, s)                
-            snr_ok = m.cut_on_amplitude_snr(mjd, z, s, snr_cuts={'LSSTPG::g': 10., 'LSSTPG::r': 10., 'LSSTPG::i': 10.,
-                                                                 #                                                                 'LSSTPG::z': 20.
-            })
+
+            snr_ok = m.cut_on_amplitude_snr(mjd, z, s, 
+                                            snr_cuts = {'LSSTPG::g': 30., 'LSSTPG::r': 40., 'LSSTPG::i': 30., 'LSSTPG::z': 20.})
             
             # update max-z map 
             zmax[(cz>0) & (snr_ok>0.) & (zmax==0.)] = z
