@@ -13,6 +13,7 @@ import argparse
 from mx.DateTime import DateTimeFromMJD
 
 import matplotlib
+from matplotlib.cm import jet
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 plt.interactive(0)
@@ -214,7 +215,8 @@ class Metrics(object):
                     min=kwargs.get('vmin', None), 
                     max=kwargs.get('vmax', None),
                     sub=kwargs.get('sub', None),
-                    cbar=kwargs.get('cbar', True))
+                    cbar=kwargs.get('cbar', True),
+                    cmap=None)
         plt.title(kwargs.get('title', ''))
         if 'dump_plot_dir' in kwargs:
             fig = plt.gcf()
@@ -235,7 +237,8 @@ class Metrics(object):
                     min=kwargs.get('vmin', None), 
                     max=kwargs.get('vmax', None),
                     sub=kwargs.get('sub', None),
-                    cbar=kwargs.get('cbar', True))
+                    cbar=kwargs.get('cbar', True),
+                    cmap=None)
         plt.title(kwargs.get('title', ''))
         if 'dump_plot_dir' in kwargs:
             fig = plt.gcf()
@@ -341,22 +344,25 @@ def movie(l, zmax=0.5, nside=64, dump_plot_dir=None, nsn_func=None,
         fig = plt.figure(1, figsize=(15.,7.5))
         human_date = DateTimeFromMJD(mjd).strftime('%Y-%m-%d')
         fig.suptitle('[%s  mjd=%6.0f]' % (human_date, mjd))
-        m.plot_map(nsn_tot, fig=1, sub=231, vmin=0., vmax=vmax_nsn, cbar=True, title='$\int N_{SNe}: %6.0f$' % nsn_tot.sum())
+        m.plot_map(nsn_tot, fig=1, sub=231, vmin=0., vmax=vmax_nsn, cbar=True, title='$N_{SNe}: %6.0f$ (tot)' % nsn_tot.sum())
         tmp_map[:] = hp.UNSEEN ; idx = zmax_nhits>0
         tmp_map[idx] = zmax_tot[idx] / zmax_nhits[idx]
-        m.plot_map(tmp_map, fig=1, sub=232, vmin=0., vmax=0.5, cbar=True, title='$z_{max}$ (avg)')
+        med = np.median(tmp_map[tmp_map>0])
+        m.plot_map(tmp_map, fig=1, sub=232, vmin=0., vmax=0.5, cbar=True, title='$z_{max}$ (avg) [%4.2f]' % (med if ~np.isnan(med) else 0))
         tmp_map[:] = hp.UNSEEN ; idx = cadence_nhits>0
-        tmp_map[idx] = cadence_tot[idx] / cadence_nhits[idx]        
-        m.plot_map(tmp_map, fig=1, sub=233, vmin=0., vmax=1., cbar=True, title='cadence [day$^{-1}$] (avg)')
+        tmp_map[idx] = cadence_tot[idx] / cadence_nhits[idx]
+        med = np.median(tmp_map[tmp_map>0])
+        m.plot_map(tmp_map, fig=1, sub=233, vmin=0., vmax=1., cbar=True, title='cadence [day$^{-1}$] (avg) [%4.2f]' % (med if ~np.isnan(med) else 0))
         
-        m.plot_map(nsn_inst, fig=1, sub=234, vmin=0., cbar=True, title='$N_{SNe}: %4.0f$' % nsn_inst.sum())
-        m.plot_map(zmax, fig=1, vmin=0., vmax=0.5, sub=235, cbar=True, title='$z_{max}$')        
+        m.plot_map(nsn_inst, fig=1, sub=234, vmin=0., vmax=0.015, cbar=True, title='$N_{SNe}: %4.0f$' % nsn_inst.sum())
+        med = np.median(zmax[zmax>0])
+        m.plot_map(zmax, fig=1, vmin=0., vmax=0.5, sub=235, cbar=True, title='$z_{max}$ [%4.2f]' % (med if ~np.isnan(med) else 0))
         m.plot_cadence(c, fig=1, dump_plot_dir=dump_plot_dir, 
                        vmin=0.,
                        vmax=1.,
                        min_cadence=min_cadence,
                        sub=236,
-                       title='cadence [day$^{-1}$]',
+                       title='cadence [day$^{-1}$] [%4.2f]' % np.median(c[c>0]),
                        cbar=True)
 
         fig = plt.figure(2)
