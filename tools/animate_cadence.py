@@ -13,7 +13,7 @@ import argparse
 from mx.DateTime import DateTimeFromMJD
 
 import matplotlib
-from matplotlib.cm import jet
+from matplotlib.cm import jet, bwr, PiYG
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 plt.interactive(0)
@@ -42,10 +42,20 @@ def main(filename='h.npy.npz'):
     l = f['l']
     return l
 
+maps = [jet, bwr, PiYG]
+for m in maps:
+    m.set_under('w')
+    m.set_over(m(1.0))
+    m.set_under('w')
+    m.set_bad('gray')
+    #bwr.set_under('w')
+    #PiYG.set_under('w')
+
+
 
 class Metrics(object):
     
-    def __init__(self, pxlobs, z=0.5, rf_phase_range=(-20., 35.), nside=64, etc=None, lc_template=None, model_filename=None):
+    def __init__(self, pxlobs, z=0.5, rf_phase_range=(-20., 45.), nside=64, etc=None, lc_template=None, model_filename=None):
         """
         Constructor. Takes a file 
         """
@@ -54,7 +64,7 @@ class Metrics(object):
         self.mjd = self.mjd[self.mjd>0]
         self.nside, self.npix = nside, hp.nside2npix(nside)
         self.rf_phase_range = np.array(rf_phase_range)
-        self.min_rf_phase_range = np.array(rf_phase_range) + np.array([5., -5.])
+        self.min_rf_phase_range = np.array(rf_phase_range) + np.array([10., -10.])
         self.accept = []
         self.fig_odometer = 0
         self.cache_mjd_min = 0.
@@ -216,7 +226,8 @@ class Metrics(object):
                     max=kwargs.get('vmax', None),
                     sub=kwargs.get('sub', None),
                     cbar=kwargs.get('cbar', True),
-                    cmap=None)
+                    cmap=jet)
+        # hp.graticule()
         plt.title(kwargs.get('title', ''))
         if 'dump_plot_dir' in kwargs:
             fig = plt.gcf()
@@ -238,7 +249,8 @@ class Metrics(object):
                     max=kwargs.get('vmax', None),
                     sub=kwargs.get('sub', None),
                     cbar=kwargs.get('cbar', True),
-                    cmap=None)
+                    cmap=jet)
+        # hp.graticule()
         plt.title(kwargs.get('title', ''))
         if 'dump_plot_dir' in kwargs:
             fig = plt.gcf()
@@ -315,9 +327,12 @@ def movie(l, zmax=0.5, nside=64, dump_plot_dir=None, nsn_func=None,
                 snr_r = m.amplitude_snr(mjd, 'LSSTPG::r', z, s)
                 snr_i = m.amplitude_snr(mjd, 'LSSTPG::i', z, s)
                 snr_z = m.amplitude_snr(mjd, 'LSSTPG::z', z, s)                
-
-            snr_ok = m.cut_on_amplitude_snr(mjd, z, s, 
-                                            snr_cuts = {'LSSTPG::g': 30., 'LSSTPG::r': 40., 'LSSTPG::i': 30., 'LSSTPG::z': 20.})
+            if z <= 0.3:
+                snr_ok = m.cut_on_amplitude_snr(mjd, z, s, 
+                                                snr_cuts = {'LSSTPG::g': 30., 'LSSTPG::r': 40., 'LSSTPG::i': 30., 'LSSTPG::z': 20.})
+            else:
+                snr_ok = m.cut_on_amplitude_snr(mjd, z, s, 
+                                                snr_cuts = {'LSSTPG::r': 40., 'LSSTPG::i': 30., 'LSSTPG::z': 20.})
             
             # update max-z map 
             zmax[(cz>0) & (snr_ok>0.) & (zmax==0.)] = z
@@ -357,20 +372,24 @@ def movie(l, zmax=0.5, nside=64, dump_plot_dir=None, nsn_func=None,
         m.plot_map(nsn_inst, fig=1, sub=234, vmin=0., vmax=0.015, cbar=True, title='$N_{SNe}: %4.0f$' % nsn_inst.sum())
         med = np.median(zmax[zmax>0])
         m.plot_map(zmax, fig=1, vmin=0., vmax=0.5, sub=235, cbar=True, title='$z_{max}$ [%4.2f]' % (med if ~np.isnan(med) else 0))
+        med = np.median(c[c>0])
         m.plot_cadence(c, fig=1, dump_plot_dir=dump_plot_dir, 
                        vmin=0.,
                        vmax=1.,
                        min_cadence=min_cadence,
                        sub=236,
-                       title='cadence [day$^{-1}$] [%4.2f]' % np.median(c[c>0]),
+                       title='cadence [day$^{-1}$] [%4.2f]' % (med if ~np.isnan(med) else 0.),
                        cbar=True)
 
+        # SNR debug plots 
         fig = plt.figure(2)
         fig.suptitle('[%s  mjd=%6.0f]' % (human_date, mjd))
         m.plot_map(snr_g, fig=2, sub=221, vmin=0., vmax=30., cbar=True, title='SNR[g]')
         m.plot_map(snr_r, fig=2, sub=222, vmin=0., vmax=40., cbar=True, title='SNR[r]')
         m.plot_map(snr_i, fig=2, sub=223, vmin=0., vmax=30., cbar=True, title='SNR[i]')        
         m.plot_map(snr_z, fig=2, sub=224, vmin=0., vmax=20., cbar=True, title='SNR[z]', dump_plot_dir=dump_plot_dir, prefix='snr')
+
+        # cadence debug plots
 
         m.fig_odometer += 1
         
