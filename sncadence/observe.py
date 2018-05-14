@@ -8,7 +8,7 @@ import os
 a = 2
 
 # shared with ubercal studies
-cadence_dir = '/data/nrl/LSST_GAIA_UBERCAL/cadence_db'
+cadence_dir = '/scratch_ssd/regnault/LSST_SN_CADENCE/cadence_db'
 
 cadence_name, mjd_min, mjd_max, nside = get_input()
 cadence_file = cadence_dir + os.sep + cadence_name + '.npy'

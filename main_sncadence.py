@@ -29,7 +29,7 @@ observe -> analyze;
 
 log_level = logging.INFO
 code_dir = op.abspath('./sncadence')
-prefix = '/data/nrl/LSST_SN_CADENCE/'
+prefix = '/scratch_ssd/regnault/LSST_SN_CADENCE/'
 sql_file = prefix + os.sep + '.sqlstatus'
 
 cadences = ['alt_sched',   
@@ -94,7 +94,7 @@ def main():
     else:
         W,t = launch_process(P, args.process, 
                              log_level=log_level, 
-                             address=('', 56000))
+                             address=('', 56001))
         W.run()
         
     return P
