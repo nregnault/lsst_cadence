@@ -114,7 +114,7 @@ def fisher_matrix(fn='tst.obs.npz', refcell=94):
     logging.info('building the Fisher matrix')
     J = model.get_free_mat()
     N,n = J.shape
-    W = dia_matrix((1.E5 * np.ones(N), [0]), shape=(N,N))
+    W = dia_matrix((1.E6 * np.ones(N), [0]), shape=(N,N))
     H = J.T * W * J
     
     logging.info('cholesky factorization')
@@ -126,7 +126,13 @@ def fisher_matrix(fn='tst.obs.npz', refcell=94):
 def fisher_selinv(dp, model, H, fact, nside=1024):
     # compute and plot the diagonal of the inverse Fisher matrix
     logging.info('diagonal of the inverse Fisher matrix')
-    r = saunerie.selinv.selinv(H, fact.P())
+    logging.info('shapes: H: %r - nnz=%d' % (H.shape,H.nnz))
+    logging.info('shapes: P: %r ' % (fact.P().shape,))
+    logging.info('debug: P: (%E,%E)' % (fact.P().min(), fact.P().max()))
+    HH = H.tocoo()
+    pp = fact.P()
+    r = saunerie.selinv.selinv(HH, P=pp)
+    #    r = saunerie.selinv.selinv(H)
     md = np.zeros(hp.nside2npix(nside))
     md[:] = hp.UNSEEN
     p = model.params.copy()
@@ -137,29 +143,33 @@ def fisher_selinv(dp, model, H, fact, nside=1024):
 
 
 def generate_realizations(dp, model, H, fact, nside=1024, n_realizations=1):
-    if dump_plot == True:
-        plot = True
-    # compute and plot the specified number of realizations
-    # of the fitted mags
     ret = []
     D = fact.D()
     for i_realization in xrange(n_realizations):
         logging.info('survey realizations: %d : cell dmags' % i_realization)
         z = np.random.normal(size=len(model.params.free))
-        zz = fact.solve_Lt(z)
-        zz = zz / np.sqrt(D)
+        zz = z / np.sqrt(D)
+        zz = fact.solve_Lt(zz)
         zz = fact.apply_Pt(zz)
         m = np.zeros(hp.nside2npix(nside))
         m[:] = hp.UNSEEN
         p = model.params.copy()
         p.free = zz
         m[dp.pixel_set] = p['mag'].full
-#        if plot is True:
-#            hp.mollview(m, nest=True, min=-0.01, max=0.01)
-#            if dump_plot:
-#                pl.gcf().savefig(prefix + "_%03d.png" % i_realization)
         ret.append(m)
     return ret
+
+
+def compute_cl(m, nside=1024, nest=True, lmax=1500):
+    if nest:
+        npix = hp.nside2npix(nside)
+        mm = np.zeros(npix)
+        i = np.arange(npix)
+        mm[:] = m[hp.ring2nest(nside,i)]
+    else:
+        mm = m
+    c = hp.anafast(mm, lmax=lmax)
+    return c
 
 
 if __name__ == "__main__":
@@ -183,9 +193,20 @@ if __name__ == "__main__":
     #                     help='number of cells per ccd in the x-direction')
     # parser.add_argument('--ncellsy', default=1, type=int, dest='ny',
     #                     help='number of cells per ccd in the y-direction')
+    parser.add_argument('--dump_inv_fisher', default=None, type=str,
+                        help='dump the fisher matrix (in coo_matrix format) in specified dir')
+    parser.add_argument('--dump_maps', default=False, 
+                        action='store_true',
+                        help='dump the dmag maps (realizations of the ubercal errors on mags)')
+    parser.add_argument('--dump_cls', default=False, 
+                        action='store_true',
+                        help='dump the map cls ')
     parser.add_argument('--realizations', dest='realizations', default=10, 
                         type=int, 
                         help='number of realizations')
+    parser.add_argument('--lmax', dest='lmax', default=1500,
+                        type=int, 
+                        help='lmax for cl')
     parser.add_argument('--plot_dir', default=None, type=str,
                         help='prepare and dump control plots')
     parser.add_argument('obs', type=str, default=None,
@@ -197,26 +218,47 @@ if __name__ == "__main__":
     
     # compute the fisher matrix
     dp, model, H, fact = fisher_matrix(args.obs)
-    md = fisher_selinv(dp, model, H, fact, nside=args.nside)
 
-    # selinv -> get at least the diagnonal of the fisher matrix
-    if args.output_dir is not None:
-        np.save(args.output_dir + os.sep + 'md.npy', md)
-    if args.plot_dir is not None:
-        hp.mollview(md, nest=True)
-        pl.gcf().savefig(args.plot_dir + os.sep + 'md.png', bbox_inches='tight')
+    if args.dump_inv_fisher:
+        fn = args.dump_inv_fisher + os.sep + 'H.npz'
+        HH = H.tocoo()
+        np.savez(fn, v=HH.data, i=HH.row, j=HH.col, permutation=fact.P())
+        
+    if True:
+        md = fisher_selinv(dp, model, H, fact, nside=args.nside)
+        # selinv -> get at least the diagnonal of the fisher matrix
+        if args.output_dir is not None:
+            np.save(args.output_dir + os.sep + 'md.npy', md)
+        if args.plot_dir is not None:
+            hp.mollview(md, nest=True, min=0., max=0.001)
+            pl.gcf().savefig(args.plot_dir + os.sep + 'md.png', bbox_inches='tight')
         
         
     # genrate a handful of realizations 
     ret = generate_realizations(dp, model, H, fact, 
                                 nside=args.nside, 
                                 n_realizations=args.realizations)
-    if args.output_dir is not None:
+    cl = []
+    for r in ret:
+        cl.append(compute_cl(r, nside=args.nside, nest=True, lmax=args.lmax))
+    
+    if args.output_dir is not None and args.dump_maps:
         for i,r in enumerate(ret):
-            np.save(args.output_dir + os.sep + 'r_%d.npy' % i, r)
+            np.save(args.output_dir + os.sep + 'r_%05d.npy' % i, r)
+    if args.output_dir is not None and args.dump_cls:
+        u = np.vstack(cl)
+        np.save(args.output_dir + os.sep + 'cl.npy', u)
     if args.plot_dir is not None:
         for i,r in enumerate(ret):
-            hp.mollview(r, nest=True)
-            pl.gcf().savefig(args.plot_dir + os.sep + 'r_%d.png' % i, bbox_inches='tight')
+            hp.mollview(r, nest=True, min=-0.010, max=0.010)
+            pl.gcf().savefig(args.plot_dir + os.sep + 'r_%05d.png' % i, bbox_inches='tight')
+        fig = pl.figure()
+        l = np.arange(1, args.lmax+2, 1.)
+        pl.plot(l*(l+1)*cl[0], 'k,-')
+        fig.savefig(args.plot_dir + os.sep + 'cl_0.png', bbox_inches='tight')
+        fig = pl.figure()
+        for c in cl:
+            pl.plot(l*(l+1)*c, 'k,-')
+        fig.savefig(args.plot_dir + os.sep + 'cl_all.png', bbox_inches='tight')
         
     
