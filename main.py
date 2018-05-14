@@ -24,12 +24,12 @@ from croaks import NTuple
 
 
 pipedot="""
-observe;
+observe -> fisher;
 """
 
 log_level = logging.INFO
 code_dir = op.abspath('./ubercal')
-prefix = '/data/nrl/LSST_GAIA_UBERCAL/'
+prefix = '/scratch_ssd/regnault/LSST_GAIA_UBERCAL/'
 sql_file = prefix + os.sep + '.sqlstatus'
 
 cadences = ['alt_sched',   
@@ -86,7 +86,8 @@ def main():
         sys.exit(0)
         
     #    tasks = [('minion_1016', 59580., 59945., 'r', 1024)]
-    tasks = get_tasks(cadences, mjds, ['g', 'r', 'i', 'z'], nside=args.nside)
+    #    tasks = get_tasks(cadences, mjds, ['g', 'r', 'i', 'z'], nside=args.nside)
+    tasks = get_tasks(cadences, mjds, ['z'], nside=args.nside)
     P.push(observe=tasks)
     
     if args.debug:
@@ -95,7 +96,7 @@ def main():
     else:
         W,t = launch_process(P, args.process, 
                              log_level=log_level, 
-                             address=('', 56000))
+                             address=('', 56003))
         W.run()
         
     return P

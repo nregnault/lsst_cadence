@@ -184,6 +184,9 @@ if __name__ == "__main__":
     parser.add_argument('--norefpixs', default=False,
                         dest='norefpixs', action='store_true',
                         help='no reference pixel observations')
+    parser.add_argument('--nfluxstd', default=0, type=int,
+                        dest='nb_flux_standards', 
+                        help='number of flux standards to generate')
     parser.add_argument('log', type=str, default=None,
                         help='observation log')
 
@@ -203,7 +206,8 @@ if __name__ == "__main__":
     if args.norefpixs:
         refpixs = None
     else:
-        refpixs = get_flux_standards(args.nside)
+        refpixs = get_flux_standards(args.nside, random=args.nb_flux_standards)
+    logging.info('refpixs: %r' % refpixs)
     m,l = main_observe(log, args.nside,
                        refpixs=refpixs,
                        #                       refpixs=get_flux_standards(args.nside),
