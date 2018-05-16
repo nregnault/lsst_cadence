@@ -1,0 +1,36 @@
+* Install Anaconda base 
+
+wget https://repo.anaconda.com/archive/Anaconda2-5.1.0-Linux-x86_64.sh
+chmod u+x Anaconda2-5.1.0-Linux-x86_64.sh 
+./Anaconda2-5.1.0-Linux-x86_64.sh
+export PYTHONNOUSERSITE=True
+
+conda update -n base conda
+conda install mkl 
+
+
+
+make sure that we use conda pip 
+which pip 
+Update pip, while we are at it:
+
+
+
+** Our software
+*** healpy 
+Doesn't look like healpy is in conda. So, I install it from pip
+pip install healpy 
+
+*** pipelet 
+needs cherrypy, but hasn't followed the interface changes of the 
+recent cherrypy versions. So force install of a less recent one. 
+Patches have been sent to the Betoule family
+conda install cherrypy=13.1.0
+
+*** croaks, saunerie and their dependencies
+
+tar xvzf scikit-sparse-0.4.1.tar.gz 
+cd scikit_sparse.egg-info
+python setup.py install --prefix=../../anaconda2
+
+export SALTPATH=/sps/lsst/users/regnault/software/snfit_data
