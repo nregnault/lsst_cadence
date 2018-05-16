@@ -25,12 +25,6 @@ import healpy as hp
 from saunerie import psf
 
 
-# CADENCE_FILES = ['alt_sched.npy',  'alt_sched_rolling.npy',  'feature_baseline_10yrs.npy',
-#                  'feature_rolling_half_mask_10yrs.npy',  'feature_rolling_twoThird_10yrs.npy',
-#                  'minion_1016.npy']
-# CADENCE_SHORT_NAMES = ['AltSched',  'AltSchedRolling',  'FeatureBaseline',
-#                        'FeatureRolling1/2',  'FeatureRolling2/3',
-#                        'Minion']
 
 def _savefig(fig, filename):
     dirname = op.dirname(filename)
@@ -92,10 +86,12 @@ def number_of_visits(l, band=None, nside=64):
     """
     npix = hp.nside2npix(nside)
     ipix = l['pixel'][l['band'] == band] if band is not None else l['pixel']
-    return np.bincount(ipix, minlength=npix)
+    m = np.bincount(ipix, minlength=npix).astype(float)
+    m[m<=0] = hp.UNSEEN
+    return m
 
 
-def plot_number_of_visits(obslog, nside=64, max_nv=300, output_dir=None):
+def plot_number_of_visits(obslog, nside=64, max_nv=400, output_dir=None):
     maps = {}
     for band in "ugrizy":
         logging.info('processing band: %s' % band)
@@ -105,13 +101,17 @@ def plot_number_of_visits(obslog, nside=64, max_nv=300, output_dir=None):
     # plot as maps
     fig = pl.figure(num=1, figsize=(8,6))
     fig.clear()
+    fig.suptitle('number of visits (full survey)')
     for i,band in zip([1,2,3,4], "griz"):
-        hp.mollview(maps[band], min=0, max=max_nv, nest=1, fig=1, sub=(2,2,i), title=band)
+        nv = maps[band]
+        hp.mollview(nv, min=0, max=max_nv, nest=1, fig=1, sub=(2,2,i), 
+                    title='%s [%6.0f]' % (band, np.median(nv[nv>0])))
     _savefig(fig, output_dir + os.sep + 'nvisits.png')
-        
+    
     # plot as histograms
     fig = pl.figure(num=2, figsize=(8,6))
     fig.clear()    
+    fig.suptitle('number of visits (full survey)')
     pl.suptitle('Number of visits (full survey)')
     for i,band in zip([1,2,3,4], "griz"):
         ax = fig.add_subplot(2,2,i)
@@ -125,7 +125,6 @@ def plot_number_of_visits(obslog, nside=64, max_nv=300, output_dir=None):
 
 def average_seeing(l, band, nside=64):
     npix = hp.nside2npix(nside)
-    #    nvisits = {}
     idx = l['band'] == band
     ipix = l['pixel'][idx]
     seeing = l['seeing'][idx]
@@ -179,17 +178,19 @@ def plot_survey_depth(l, etc, nside=64, maxv=29., output_dir=None):
     fig.clear()
     pl.suptitle('survey depth (full survey)')
     for i,band in zip([1,2,3,4], "griz"):
-        hp.mollview(maps[band], min=24.5, max=maxv, nest=1, fig=1, sub=(2,2,i),
-                    title='%s [%5.2f]' % (band, np.median(maps[band])))
+        m = maps[band]
+        hp.mollview(m, min=24.5, max=maxv, nest=1, fig=1, sub=(2,2,i),
+                    title='%s [%5.2f]' % (band, np.median(m[m>0.])))
     _savefig(fig, output_dir + os.sep + 'survey_depth.png')
         
     # plot as histograms
     fig = pl.figure(num=2, figsize=(8,6))
+    fig.clear()
     pl.suptitle('Survey depth (full survey)')
     for i,band in zip([1,2,3,4], "griz"):
         ax = fig.add_subplot(2,2,i)
         nv = maps[band]
-        ax.hist(nv[nv>0], range=(24.5,maxv), bins=100)
+        ax.hist(nv[nv>0], range=(24.5,maxv), bins=100, log=True)
         ax.set_title(band)
     _savefig(fig, output_dir + os.sep + 'survey_depth_hist.png')
     
@@ -217,20 +218,24 @@ def average_cadence(l, band=None, nside=64, exclude_bands=[], season_gap=100):
         idx = ll['pixel'] == i
         m = np.unique(mjd[idx])
         dt = m[1:] - m[:-1]
+        dt = dt[dt>0.]
         cad[i] = np.mean(dt[dt<season_gap])
-
-    print np.unique(ll['band'])
+        
+    cad[cad<=0.] = hp.UNSEEN
+    
     return cad
     
 
 def plot_average_cadence(data, nside=64, output_dir=None):
     fig = pl.figure(num=1, figsize=(8,6))
     fig.clear()
+    pl.suptitle('median $\Delta t$ between obs (Full survey)')
     # main cadence
     for i,band in zip([1,2,3,4],'griz'):
         logging.info('processing band: %s' % band)
         cad = average_cadence(data, band=band, nside=64)
-        hp.mollview(cad, min=0, max=50, nest=1, fig=1, sub=(2,2,i))
+        hp.mollview(cad, min=0, max=50, nest=1, fig=1, sub=(2,2,i), 
+                    title='%s [%5.1f days]' % (band, np.median(cad[cad>0.])))
     _savefig(fig, output_dir + os.sep + 'average_cadence.png')
 
 
@@ -256,7 +261,7 @@ if __name__ == '__main__':
     #    r = cadence_stats(cad, bands='ugrizy', title=args.cadence_filename)
 
     # numbers of visits
-    plot_number_of_visits(obslog, nside=64, max_nv=300, output_dir=args.output_dir)
+    plot_number_of_visits(obslog, nside=64, max_nv=400, output_dir=args.output_dir)
 
     # average seeing
     plot_average_seeing(obslog, nside=64, output_dir=args.output_dir)
@@ -266,5 +271,5 @@ if __name__ == '__main__':
     plot_survey_depth(obslog, etc, nside=64, maxv=28., output_dir=args.output_dir)
 
     # ... aaaaand finally ! (long !)
-    if False:
+    if True:
         plot_average_cadence(obslog, nside=64, output_dir=args.output_dir)

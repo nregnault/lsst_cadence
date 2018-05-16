@@ -25,6 +25,7 @@ from croaks import NTuple
 
 pipedot="""
 observe -> analyze;
+observe -> global_metrics;
 """
 
 log_level = logging.INFO
