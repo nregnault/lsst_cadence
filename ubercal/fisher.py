@@ -6,7 +6,7 @@ and factorize it.
 import os
 import os.path as op
 
-a = 6
+a = 7
 
 cadence_name, mjd_min, mjd_max, band, nside = get_input()
 

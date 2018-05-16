@@ -39,7 +39,7 @@ def build_proxy(l):
                           gridobs='gridobs')
     
     mjd_min = dp.mjd[dp.mjd>0].min()
-    s = (dp.mjd - mjd_min).astype(int) / 60
+    s = (dp.mjd - mjd_min).astype(int) / 15
     s[s<0] = 0
     dp.add_field('month', s)
     
@@ -250,7 +250,7 @@ if __name__ == "__main__":
         np.save(args.output_dir + os.sep + 'cl.npy', u)
     if args.plot_dir is not None:
         for i,r in enumerate(ret):
-            hp.mollview(r, nest=True, min=-0.010, max=0.010)
+            hp.mollview(r, nest=True, min=-0.001, max=0.001)
             pl.gcf().savefig(args.plot_dir + os.sep + 'r_%05d.png' % i, bbox_inches='tight')
         fig = pl.figure()
         l = np.arange(1, args.lmax+2, 1.)
@@ -258,7 +258,7 @@ if __name__ == "__main__":
         fig.savefig(args.plot_dir + os.sep + 'cl_0.png', bbox_inches='tight')
         fig = pl.figure()
         for c in cl:
-            pl.plot(l*(l+1)*c, 'k,-')
+            pl.plot(l*(l+1)*c.mean(axis=0), 'k,-')
         fig.savefig(args.plot_dir + os.sep + 'cl_all.png', bbox_inches='tight')
         
     
