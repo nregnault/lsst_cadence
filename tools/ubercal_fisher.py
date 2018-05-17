@@ -74,10 +74,11 @@ class FisherMatrix(object):
     """
     """
     def __init__(self, filename, refcell=94, nside=1024):
+        self.filename = filename
         self.f = np.load(filename)
         self.nside = nside
-        self.obslog = self._load_obslog(self.f)
-        self.flag_refcell_measurements(refcell)
+        self.obslog = self._load_obslog()
+        self._flag_refcell_measurements(refcell)
         self._build_proxy()
         
     def _load_obslog(self):
@@ -90,9 +91,10 @@ class FisherMatrix(object):
         self.obslog['refcell'][idx] = 1
         logging.info('%d measurements with that reference cell' % self.obslog['refcell'].sum())
         
-    def _build_proxy(self, focal_plane_map_validity=30):
+    def _build_proxy(self, focal_plane_map_validity=60):
         logging.info('building data proxy')
-        dp = croaks.DataProxy(l, expnum='expnum', cell='cell', 
+        dp = croaks.DataProxy(self.obslog, 
+                              expnum='expnum', cell='cell', 
                               pixel='pixel', mjd='mjd', 
                               refstar='refstar',
                               refcell='refcell',
@@ -150,6 +152,7 @@ class FisherMatrix(object):
         return self.fact
         
     def low_mem_state(self):
+        logging.info('dropping now useless data structures')
         del self.obslog
         del self.model 
         
@@ -182,8 +185,8 @@ class FisherMatrix(object):
             logging.info('survey realizations: %d : cell dmags' % i_realization)
             z = np.random.normal(size=len(p.free))
             zz = z / np.sqrt(D)
-            zz = fact.solve_Lt(zz)
-            zz = fact.apply_Pt(zz)
+            zz = self.fact.solve_Lt(zz)
+            zz = self.fact.apply_Pt(zz)
             m = np.zeros(hp.nside2npix(self.nside))
             m[:] = hp.UNSEEN
             p.free = zz
@@ -272,7 +275,7 @@ if __name__ == "__main__":
         # by default, we generate a handful of realizations, and perform
         sr = fm.survey_realizations(n_realizations=args.realizations)
         sr = np.vstack(sr)
-        cl = [compute_cl(r, nside=args.nside, nest=True, lmax=args.lmax) for r in ret]
+        cl = [compute_cl(r, nside=args.nside, nest=True, lmax=args.lmax) for r in sr]
         cl = np.vstack(cl)
 
         # dumps the maps and the cl's (optional)
@@ -289,11 +292,11 @@ if __name__ == "__main__":
                 
             fig = pl.figure()
             l = np.arange(1, args.lmax+2, 1.)
-            pl.plot(l*(l+1)*cl[0], 'k,-')
+            pl.plot(l, np.sqrt(cl[0]), 'k,-')
             fig.savefig(args.plot_dir + os.sep + 'cl_0.png', bbox_inches='tight')
             fig = pl.figure()
             for c in cl:
-                pl.plot(l*(l+1)*c.mean(axis=0), 'k,-')
+                pl.plot(l, np.sqrt(c.mean(axis=0)), 'k,-')
                 fig.savefig(args.plot_dir + os.sep + 'cl_all.png', bbox_inches='tight')
         
     
