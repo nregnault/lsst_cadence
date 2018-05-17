@@ -224,7 +224,7 @@ if __name__ == "__main__":
         HH = H.tocoo()
         np.savez(fn, v=HH.data, i=HH.row, j=HH.col, permutation=fact.P())
         
-    if True:
+    if False:
         md = fisher_selinv(dp, model, H, fact, nside=args.nside)
         # selinv -> get at least the diagnonal of the fisher matrix
         if args.output_dir is not None:

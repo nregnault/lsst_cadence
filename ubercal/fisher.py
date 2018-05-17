@@ -12,7 +12,7 @@ cadence_name, mjd_min, mjd_max, band, nside = get_input()
 
 obs_file = glob_parent('obs.npy.npz')[0]
 plot_dir = op.dirname(get_data_fn('toto'))
-nb_realizations = 100
+nb_realizations = 500
 
 cmd = ['ubercal_fisher.py', 
        '--output_dir', plot_dir,
