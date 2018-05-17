@@ -73,15 +73,17 @@ def ubercal_model_with_photflat(dp, fix_grid_zp=True):
 class FisherMatrix(object):
     """
     """
-    def __init__(self, filename, refcell=94, nside=1024):
-        self.filename = filename
-        self.f = np.load(filename)
+    def __init__(self, fn, refcell=94, nside=1024):
+        if type(fn) is str:
+            self.obslog = self._load_obslog(fn)
+        elif type(fn) is list:
+            self.obslog = np.vstack([self._load_obslog[f] for f in fn])
         self.nside = nside
         self.obslog = self._load_obslog()
         self._flag_refcell_measurements(refcell)
         self._build_proxy()
         
-    def _load_obslog(self):
+    def _load_obslog(self, filename):
         logging.info('loading obslog: %s' % self.filename)
         return self.f['l']
         
@@ -143,6 +145,7 @@ class FisherMatrix(object):
         
         W = dia_matrix((wmap, [0]), shape=(N,N))
         self.H = J.T * W * J
+        logging.info('Fisher matrix: shape: %r, nnz=%d' % (H.shape, H.nnz))
         return self.H
 
     def cholesky(self, H):
@@ -165,7 +168,7 @@ class FisherMatrix(object):
         H, P = self.H, self.P
         logging.info('diagonal of the inverse Fisher matrix')
         logging.info('shapes: H: %r - nnz=%d' % (H.shape,H.nnz))
-        logging.info('shapes: P: %r ' % (P.shape,))
+        #        logging.info('shapes: P: %r ' % (P.shape,))
         
         r = saunerie.selinv.selinv(H, P=P)
         md = np.zeros(hp.nside2npix(nside))
@@ -197,6 +200,7 @@ class FisherMatrix(object):
 
 
 def compute_cl(m, nside=1024, nest=True, lmax=1500):
+    logging.info('compute_cl -> lmax=%d' % lmax)
     if nest:
         npix = hp.nside2npix(nside)
         mm = np.zeros(npix)
@@ -239,8 +243,8 @@ if __name__ == "__main__":
                         help='lmax for cl')
     parser.add_argument('--plot_dir', default=None, type=str,
                         help='prepare and dump control plots')
-    parser.add_argument('obs', type=str, default=None,
-                        help='observation file')
+    parser.add_argument('obs', type=str, nargs='+',
+                        help='observation file(s)')
     
     args = parser.parse_args()
     print args    
@@ -275,18 +279,33 @@ if __name__ == "__main__":
         # by default, we generate a handful of realizations, and perform
         sr = fm.survey_realizations(n_realizations=args.realizations)
         sr = np.vstack(sr)
+        # sigma map
+        rms = np.std(sr, axis=0)
+        idx = sr[0,:] <= 0.
+        rms[idx] = hp.UNSEEN
+        
         cl = [compute_cl(r, nside=args.nside, nest=True, lmax=args.lmax) for r in sr]
         cl = np.vstack(cl)
 
         # dumps the maps and the cl's (optional)
         if args.output_dir is not None:
+            logging.info('writing products -> %s' % args.output_dir)
+            logging.info('calibrated magnitude uncertainty map')
+            np.save(args.output_dir + os.sep + 'diag.npy', rms)
             if args.dump_maps:
+                logging.info('survey realizations')
                 np.save(args.output_dir + os.sep + 'survey_realizations.npy', sr)
             if args.dump_cls:
+                logging.info('error power spectra')
                 np.save(args.output_dir + os.sep + 'cl.npy', cl)
                 
         if args.plot_dir is not None:
+            logging.info('writing plots -> %s' % args.plot_dir)            
+            logging.info('calibrated magnitude uncertainty map')
+            hp.mollview(rms, nest=True, min=0., max=0.001)
+            pl.gcf().savefig(args.plot_dir + os.sep + 'diag.png', bbox_inches='tight')
             for i,r in enumerate(sr):
+                logging.info('survey realizations')
                 hp.mollview(r, nest=True, min=-0.001, max=0.001)
                 pl.gcf().savefig(args.plot_dir + os.sep + 'r_%05d.png' % i, bbox_inches='tight')
                 
