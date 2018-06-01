@@ -277,7 +277,7 @@ def movie(l, zmax=0.5, nside=64, dump_plot_dir=None, nsn_func=None,
     make a movie of the fields that pass the cuts, up to a redshift z.
     """
     
-    m = Metrics(l, model_filename=salt2, lc_template=lc_template)
+    m = Metrics(l, model_filename=salt2, lc_template=lc_template, nside=nside)
     nsn_tot = np.zeros(m.npix)
     nsn_inst = np.zeros(m.npix)
     cadence_tot = np.zeros(m.npix)
@@ -402,6 +402,9 @@ if __name__ == "__main__":
     parser.add_argument('--nsn',
                         default=None,
                         help='file containing the tabulated cumulative number of SNe')
+    parser.add_argument('--nside',
+                        default=128,
+                        help='nside to use in the analysis')
     parser.add_argument('--ebv-mask', 
                         default=None, dest='ebv_mask',
                         help='use pixel mask (generally E(B-V) mask)')
@@ -443,7 +446,7 @@ if __name__ == "__main__":
         logging.info('stripping masked pixels: %d -> %d' % (len(idx), len(l)))
         
     #    m = Metrics(l)
-    movie(l, dump_plot_dir=args.output_dir, nsn_func=nsn_func, vmax_nsn=args.vmax_nsn, bands=['g', 'r', 'i', 'z'],
+    movie(l, nside=args.nside, dump_plot_dir=args.output_dir, nsn_func=nsn_func, vmax_nsn=args.vmax_nsn, bands=['g', 'r', 'i', 'z'],
           salt2=args.salt2,
           lc_template=args.lc_template,
           min_cadence=args.min_cadence)
