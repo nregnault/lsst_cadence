@@ -16,6 +16,8 @@ import numpy as np
 import pylab as pl
 import healpy as hp
 
+from argparse import ArgumentParser 
+
 
 def main(nside=64, plot=False, ebv_cut=0.2):
     npix = hp.nside2npix(nside)
@@ -44,8 +46,17 @@ def main(nside=64, plot=False, ebv_cut=0.2):
 
 
 if __name__ == "__main__":
-    mask = main(nside=64, ebv_cut=0.25, plot=1)
-    np.save('ebv_mask.npy', mask)
+    parser = ArgumentParser(description='dump a mask to mask out the high EBV regions of the Galaxy')
+    parser.add_argument('--nside', default=64, 
+                        help='map resolution (nside)')
+    parser.add_argument('--max-ebv', default=0.25, 
+                        help='maximum allowed E(B-V) value')    
+    parser.add_argument('-o', '--output', default='ebv_mask.npy', 
+                        help='output map')
+    args = parser.parse_args()
+    
+    mask = main(nside=args.nside, ebv_cut=args.max_ebv, plot=1)
+    np.save(args.output, mask)
 
     
     

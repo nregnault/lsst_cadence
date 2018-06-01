@@ -310,12 +310,12 @@ if __name__ == "__main__":
                 pl.gcf().savefig(args.plot_dir + os.sep + 'r_%05d.png' % i, bbox_inches='tight')
                 
             fig = pl.figure()
-            l = np.arange(1, args.lmax+2, 1.)
-            pl.plot(l, np.sqrt(cl[0]), 'k,-')
+            #            l = np.arange(1, args.lmax+2, 1.)
+            pl.plot(np.sqrt(cl[0]), 'k,-')
             fig.savefig(args.plot_dir + os.sep + 'cl_0.png', bbox_inches='tight')
             fig = pl.figure()
             for c in cl:
-                pl.plot(l, np.sqrt(c.mean(axis=0)), 'k,-')
+                pl.plot(np.sqrt(c.mean(axis=0)), 'k,-')
                 fig.savefig(args.plot_dir + os.sep + 'cl_all.png', bbox_inches='tight')
         
     

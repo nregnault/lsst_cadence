@@ -228,6 +228,7 @@ def average_cadence(l, band=None, nside=64, exclude_bands=[], season_gap=100):
     """
     npix = hp.nside2npix(nside)
     cad = np.zeros(npix)
+    cad[:] = hp.UNSEEN
     
     N = len(l)
     idx_excl = np.zeros(N).astype(bool)
@@ -259,8 +260,8 @@ def plot_average_cadence(data, nside=64, output_dir=None):
     # main cadence
     for i,band in zip([1,2,3,4],'griz'):
         logging.info('processing band: %s' % band)
-        cad = average_cadence(data, band=band, nside=64)
-        hp.mollview(cad, min=0, max=50, nest=1, fig=1, sub=(2,2,i), 
+        cad = average_cadence(data, band=band, nside=nside)
+        hp.mollview(cad, min=0, max=30, nest=1, fig=1, sub=(2,2,i), 
                     title='%s [%5.1f days]' % (band, np.median(cad[cad>0.])))
     _savefig(fig, output_dir + os.sep + 'average_cadence.png')
 
@@ -291,19 +292,25 @@ def n_seasons_and_median_duration(l, nside=64, exclude_bands=['u', 'y'], season_
     return n_seasons, median_season_duration
 
 
-def plot_seasons(data, nside=64, exclude_bands=['u', 'y'], season_gap=100, min_season_length=40., output_dir=None):
+def plot_seasons(data, nside=64, exclude_bands=['u', 'y'], season_gap=100, min_season_length=40., output_dir=None, savemaps=True):
     ns, sd = n_seasons_and_median_duration(data, nside=nside,
                                            exclude_bands=exclude_bands,
                                            season_gap=season_gap,
                                            min_season_length=min_season_length)
+    ns[ns<=0.] = hp.UNSEEN
+    sd[sd<=0.] = hp.UNSEEN
+    if savemaps:
+        np.savez(output_dir + os.sep + 'seasons.npz', 
+                 number_of_seasons=ns, 
+                 season_length=sd)
     # number of seasons
     fig = pl.figure(num=1, figsize=(8,6))
     fig.clear()
-    pl.suptitle('Search seasons (Full survey)')
+    #    pl.suptitle('Search seasons (Full survey)')
     # main cadence
-    hp.mollview(ns, min=0, max=10, nest=1, fig=1, sub=(2,1,1), 
+    hp.mollview(ns, min=0, nest=1, fig=1, sub=(2,1,1), 
                 title='number of seasons [%5.1f]' % (np.median(ns[ns>0.])))
-    hp.mollview(sd, min=0, max=120, nest=1, fig=1, sub=(2,1,2), 
+    hp.mollview(sd, min=0, nest=1, fig=1, sub=(2,1,2), 
                 title='season length [%5.1f days]' % (np.median(sd[sd>0.])))
     _savefig(fig, output_dir + os.sep + 'seasons.png')
 
@@ -314,8 +321,9 @@ if __name__ == '__main__':
     parser.add_argument('-O', '--output_dir',
                         default=None,
                         help='output directory')
-    # parser.add_argument('cadence', type=str, default=None,
-    #                     help='cadence_filename')
+    parser.add_argument('--nside',
+                        default=64,
+                        help='output directory')
     parser.add_argument('obslog', type=str,
                         help='obslog')
     args = parser.parse_args()
@@ -330,15 +338,18 @@ if __name__ == '__main__':
     #    r = cadence_stats(cad, bands='ugrizy', title=args.cadence_filename)
 
     # numbers of visits
-    plot_number_of_visits(obslog, nside=64, max_nv=400, output_dir=args.output_dir)
+    plot_number_of_visits(obslog, nside=args.nside, max_nv=400, output_dir=args.output_dir)
 
     # average seeing
-    plot_average_seeing(obslog, nside=64, output_dir=args.output_dir)
+    plot_average_seeing(obslog, nside=args.nside, output_dir=args.output_dir)
     
     # survey depth
     etc = psf.find('LSSTPG')
-    plot_survey_depth(obslog, etc, nside=64, maxv=28., output_dir=args.output_dir)
+    plot_survey_depth(obslog, etc, nside=args.nside, maxv=28., output_dir=args.output_dir)
 
     # ... aaaaand finally ! (long !)
     if True:
-        plot_average_cadence(obslog, nside=64, output_dir=args.output_dir)
+        plot_seasons(obslog, nside=args.nside, output_dir=args.output_dir)
+        plot_average_cadence(obslog, nside=args.nside, output_dir=args.output_dir)
+        
+        
