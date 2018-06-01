@@ -25,29 +25,55 @@ import healpy as hp
 from saunerie import psf
 
 
+CADENCE_FILES = ['alt_sched.npy',  'alt_sched_rolling.npy',  'feature_baseline_10yrs.npy',
+                 'feature_rolling_half_mask_10yrs.npy',  'feature_rolling_twoThird_10yrs.npy',
+                 'minion_1016.npy']
+CADENCE_SHORT_NAMES = ['AltSched',  'AltSchedRolling',  'FeatureBaseline',
+                       'FeatureRolling1/2',  'FeatureRolling2/3',
+                       'Minion']
+
 
 def _savefig(fig, filename):
     dirname = op.dirname(filename)
     if not op.isdir(dirname):
         os.makedirs(dirname)
     fig.savefig(filename, bbox_inches='tight')
-    
 
-def cadence_stats(cad, bands='ugrizy', title=''):
+
+def cadence_stats(cad, bands='ugrizy', title='', silent=False):
     r = {}
-    print '-' * 50
-    print '    %s   ' % title
-    print '-' * 50
+
+    open_shutter_time = cad['exptime'].sum()
+    nvisits_tot = len(cad)
+    r['all'] = nvisits_tot, open_shutter_time
+    
+    header, nvisits, ostime, prct = '', '', '', ''
+    for band in bands:
+        header += '%10s & ' % band
+    header += ' total '
+    
     for band in bands:
         d = cad[cad['band'] == band]
         open_shutter_time = d['exptime'].sum()
-        print '%10s: %7d %7.1f' % (band, len(d), open_shutter_time/3600.)
+        nvisits += '%7d  & ' % len(d)
+        ostime += '%7.1f & ' % (open_shutter_time / 3600.)
+        prct += '%7.1f & ' % (100. * len(d) / nvisits_tot)
         r[band] = (len(d), open_shutter_time)
-    open_shutter_time = cad['exptime'].sum()
-    print '%10s: %7d %7.1f' % ('total', len(cad), open_shutter_time/3600.)
-    r['all'] = len(cad), open_shutter_time
+    
+    nvisits += '%d' % len(cad)
+    ostime += '%8.1f' % (open_shutter_time / 3600.)
+    
+    if not silent:
+        print '-' * 50
+        print '    %s   ' % title
+        print '-' * 50
+        print header
+        print nvisits
+        print prct
+        print ostime
+        
     return r
-
+            
 
 def print_all_cadence_stats(bands='ugrizy', plot_band='all'):
     n = len(CADENCE_SHORT_NAMES)
@@ -224,7 +250,7 @@ def average_cadence(l, band=None, nside=64, exclude_bands=[], season_gap=100):
     cad[cad<=0.] = hp.UNSEEN
     
     return cad
-    
+
 
 def plot_average_cadence(data, nside=64, output_dir=None):
     fig = pl.figure(num=1, figsize=(8,6))
@@ -237,6 +263,49 @@ def plot_average_cadence(data, nside=64, output_dir=None):
         hp.mollview(cad, min=0, max=50, nest=1, fig=1, sub=(2,2,i), 
                     title='%s [%5.1f days]' % (band, np.median(cad[cad>0.])))
     _savefig(fig, output_dir + os.sep + 'average_cadence.png')
+
+
+def n_seasons_and_median_duration(l, nside=64, exclude_bands=['u', 'y'], season_gap=100, min_season_length=40.):
+    npix = hp.nside2npix(nside)
+    n_seasons = np.zeros(npix)
+    median_season_duration = np.zeros(npix)
+    N = len(l)
+    idx_excl = np.zeros(N).astype(bool)
+    for bn in exclude_bands:
+        idx_excl &= (l['band'] == bn)
+    ll = l[~idx_excl]
+    
+    ipix = np.unique(ll['pixel'])
+    mjd = np.floor(ll['mjd'])
+    for j,i in enumerate(ipix):
+        if j%100 == 0:
+            logging.info('pixel: %d / %d' % (j, len(ipix)))
+        idx = ll['pixel'] == i
+        m = np.unique(mjd[idx])
+        dm = m[1:] - m[:-1]
+        k = np.where(dm>season_gap)[0]
+        season_length = np.array([uu[1:].sum() for uu in np.split(dm, k)])
+        season_length = season_length[season_length>min_season_length]
+        n_seasons[i] = len(season_length)
+        median_season_duration[i] = np.median(season_length)
+    return n_seasons, median_season_duration
+
+
+def plot_seasons(data, nside=64, exclude_bands=['u', 'y'], season_gap=100, min_season_length=40., output_dir=None):
+    ns, sd = n_seasons_and_median_duration(data, nside=nside,
+                                           exclude_bands=exclude_bands,
+                                           season_gap=season_gap,
+                                           min_season_length=min_season_length)
+    # number of seasons
+    fig = pl.figure(num=1, figsize=(8,6))
+    fig.clear()
+    pl.suptitle('Search seasons (Full survey)')
+    # main cadence
+    hp.mollview(ns, min=0, max=10, nest=1, fig=1, sub=(2,1,1), 
+                title='number of seasons [%5.1f]' % (np.median(ns[ns>0.])))
+    hp.mollview(sd, min=0, max=120, nest=1, fig=1, sub=(2,1,2), 
+                title='season length [%5.1f days]' % (np.median(sd[sd>0.])))
+    _savefig(fig, output_dir + os.sep + 'seasons.png')
 
 
 if __name__ == '__main__':
