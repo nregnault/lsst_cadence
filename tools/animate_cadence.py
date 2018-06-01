@@ -303,7 +303,7 @@ def movie(l, zmax=0.5, nside=64, dump_plot_dir=None, nsn_func=None,
         # loop over the redshift range, and check the resolution in
         # color as a function of redshift. Store the highest redshift
         # that passes the cuts 
-        for z in np.arange(0.1, 0.51, 0.01)[::-1]:
+        for z in np.arange(0.1, 0.71, 0.01)[::-1]:
             # select the window 
             s,u = m.select_window(mjd, z=z, exclude_bands=exclude_bands)
             
