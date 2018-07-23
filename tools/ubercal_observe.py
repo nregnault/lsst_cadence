@@ -129,14 +129,14 @@ def main_observe(log, nside, refpixs, nx=1, ny=1, fast=False):
             l.append(z)
             
         
-        # reference pixels
-        if refpixs is not None:
-            N = len(refpixs)
-            z = np.zeros(N, dtype=OBS_DTYPE)
-            z['pixel'] = refpixs
-            z['refstar'] = 1
-            l.append(z)
-
+    # reference pixels
+    if refpixs is not None:
+        N = len(refpixs)
+        z = np.zeros(N, dtype=OBS_DTYPE)
+        z['pixel'] = refpixs
+        z['refstar'] = 1
+        l.append(z)
+        
     return m, np.hstack(l)
 
 
@@ -187,6 +187,9 @@ if __name__ == "__main__":
     parser.add_argument('--nfluxstd', default=0, type=int,
                         dest='nb_flux_standards', 
                         help='number of flux standards to generate')
+    parser.add_argument('--equatorial_standards', default=False, 
+                        action='store_true',
+                        help='use a bunch of equatorial standards (4 in fact) ')
     parser.add_argument('log', type=str, default=None,
                         help='observation log')
 
@@ -206,7 +209,8 @@ if __name__ == "__main__":
     if args.norefpixs:
         refpixs = None
     else:
-        refpixs = get_flux_standards(args.nside, random=args.nb_flux_standards)
+        refpixs = get_flux_standards(args.nside, random=args.nb_flux_standards, equatorial=args.equatorial_standards)
+        logging.debug('refpixs: %r' % refpixs)
     logging.info('refpixs: %r' % refpixs)
     m,l = main_observe(log, args.nside,
                        refpixs=refpixs,

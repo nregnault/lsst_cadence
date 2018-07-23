@@ -6,7 +6,7 @@ and factorize it.
 import os
 import os.path as op
 
-a = 7
+a = 8
 
 cadence_name, mjd_min, mjd_max, band, nside = get_input()
 
@@ -21,6 +21,7 @@ cmd = ['ubercal_fisher.py',
        #       '--dump_inv_fisher', plot_dir,
        '--realizations', str(nb_realizations), 
        '--plot_dir', plot_dir, 
+       '--fit', '1',
        obs_file]
 print ' '.join(cmd)
 logged_subprocess(cmd)

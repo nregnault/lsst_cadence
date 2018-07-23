@@ -30,9 +30,10 @@ observe -> global_metrics;
 
 log_level = logging.INFO
 code_dir = op.abspath('./sncadence')
-prefix = '/scratch_ssd/regnault/LSST_SN_CADENCE/'
+prefix = '/sps/lsst/cadence/LSST_SN_CADENCE/'
 sql_file = prefix + os.sep + '.sqlstatus'
 
+# Jan 2018 cadences
 cadences = ['alt_sched',   
             'alt_sched_rolling',
             'feature_baseline_10yrs',
@@ -40,11 +41,18 @@ cadences = ['alt_sched',
             'feature_rolling_twoThird_10yrs',
             'minion_1016']
 
+# white paper cadences
+cadences += """baseline2018a colossus_2667 kraken_2035
+pontus_2489 colossus_2664 mothra_2045 colossus_2665
+kraken_2026 pontus_2002 kraken_2036 pontus_2502""".split()
+
+# AltSched variants
+cadences += """altsched_18_-90_30 altsched_18_-90_40""".split()
 
 def get_tasks(cadences, nside):
     ret = []
     mjd_min = DateTimeFrom('2022-01-01').mjd
-    mjd_max = DateTimeFrom('2032-01-01').mjd
+    mjd_max = DateTimeFrom('2032-12-31').mjd
     seasons = [(mjd_min, mjd_max)]
     
     for c in cadences:

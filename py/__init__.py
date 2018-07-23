@@ -24,10 +24,14 @@ def radec2pix(ra_deg, dec_deg, nside=1024):
     return hp.ang2pix(nside, theta, phi, nest=True)
 
 
-def get_flux_standards(nside, random=0):
+def get_flux_standards(nside, equatorial=False, random=0):
     if random <= 0.:
-        ra = np.array([0., 12., 32., 55.])
-        dec = np.array([0., -22., -12., -45.])
+        if equatorial:
+            ra = np.array([0., 12., 32., 55.])
+            dec = np.array([5., -12., -5., 2.2])
+        else:
+            ra = np.array([0., 12., 32., 55.])
+            dec = np.array([0., -22., -12., -45.])
     else:
         ra = np.random.uniform(0., 350., random)
         dec = np.random.uniform(-55, -5., random)

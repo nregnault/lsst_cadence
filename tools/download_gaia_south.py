@@ -50,7 +50,8 @@ def get_pixlist(level=7, max_declination=30., plot=False):
     npix = hp.nside2npix(nside)
     ipix = np.arange(npix)
     theta,phi = hp.pix2ang(nside, ipix, nest=True)
-    dec = -theta * 180. / np.pi + 90.
+    #    dec = -theta * 180. / np.pi + 90.
+    dec = -np.degrees(theta - np.pi / 2.)
     idx = dec < 35.
 
     if plot:
@@ -163,7 +164,7 @@ def main(output_dir='./'):
         down(url, 'temp.gz')
         r = readsub('temp.gz')
         print r.__class__
-        np.save('c_%d.npy' % _u, r)
+        np.save(output_dir + os.sep + 'c_%d.npy' % _u, r)
 
 
 if __name__ == "__main__":
@@ -171,7 +172,6 @@ if __name__ == "__main__":
     parser.add_argument('-O', '--output_dir', default='./',
                         help='output directory')
     args = parser.parse_args()
-    print args
     
     main(output_dir=args.output_dir)
     

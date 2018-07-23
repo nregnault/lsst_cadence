@@ -26,10 +26,11 @@ from croaks import NTuple
 pipedot="""
 observe -> fisher;
 """
+# observe -> fisher;
 
 log_level = logging.INFO
 code_dir = op.abspath('./ubercal')
-prefix = '/scratch_ssd/regnault/LSST_GAIA_UBERCAL/'
+prefix = '/sps/lsst/cadence/UBERCAL' 
 sql_file = prefix + os.sep + '.sqlstatus'
 
 cadences = ['alt_sched',   
@@ -38,7 +39,13 @@ cadences = ['alt_sched',
             'feature_rolling_half_mask_10yrs',
             'feature_rolling_twoThird_10yrs',
             'minion_1016']
-mjds = [DateTimeFrom(str(yr) + '-01-01').mjd for yr in xrange(2022, 2033)]
+
+cadences += """baseline2018a colossus_2667 kraken_2035
+pontus_2489 colossus_2664 mothra_2045 colossus_2665
+kraken_2026 pontus_2002 kraken_2036 pontus_2502""".split()
+
+
+mjds = [DateTimeFrom(str(yr) + '-01-01').mjd for yr in xrange(2022, 2033, 1)]
 
 
 def get_tasks(cadences, mjds, bands, nside):

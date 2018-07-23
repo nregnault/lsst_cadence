@@ -1,3 +1,5 @@
+#multiplex cross_prod group_by 'observe[:-1]'
+
 """
 global metrics for the cadence
 """

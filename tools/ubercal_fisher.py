@@ -73,19 +73,21 @@ def ubercal_model_with_photflat(dp, fix_grid_zp=True):
 class FisherMatrix(object):
     """
     """
-    def __init__(self, fn, refcell=94, nside=1024):
+    def __init__(self, fn, refcell=94, nside=1024, perform_fit=False):
         if type(fn) is str:
             self.obslog = self._load_obslog(fn)
         elif type(fn) is list:
-            self.obslog = np.vstack([self._load_obslog[f] for f in fn])
+            self.obslog = np.hstack([self._load_obslog(f) for f in fn])
         self.nside = nside
-        self.obslog = self._load_obslog()
+        self.npix = hp.nside2npix(nside)
+        self.perform_fit = perform_fit
         self._flag_refcell_measurements(refcell)
         self._build_proxy()
         
     def _load_obslog(self, filename):
-        logging.info('loading obslog: %s' % self.filename)
-        return self.f['l']
+        logging.info('loading obslog: %s' % filename)
+        f = np.load(filename)
+        return f['l']
         
     def _flag_refcell_measurements(self, refcell):
         logging.info('identifying refcell measurements [%d]' % refcell)
@@ -141,11 +143,16 @@ class FisherMatrix(object):
         N,n = J.shape
         
         if wmap is None:
-            wmap = 1.E6 * np.ones(N)
+            s = 2.E-3
+            wmap = (1./s)**2 * np.ones(N)
         
         W = dia_matrix((wmap, [0]), shape=(N,N))
-        self.H = J.T * W * J
-        logging.info('Fisher matrix: shape: %r, nnz=%d' % (H.shape, H.nnz))
+        JtW = J.T * W
+        self.H = JtW * J
+        #        self.H = J.T * W * J
+        if self.perform_fit: 
+            self.JtW = JtW
+        logging.info('Fisher matrix: shape: %r, nnz=%d' % (self.H.shape, self.H.nnz))
         return self.H
 
     def cholesky(self, H):
@@ -153,13 +160,12 @@ class FisherMatrix(object):
         self.fact = cholmod.cholesky(H)
         self.P = self.fact.P()
         return self.fact
-        
+                
     def low_mem_state(self):
         logging.info('dropping now useless data structures')
         del self.obslog
         del self.model 
         
-
     def selinv(self):
         """
         compute the diagonal of the inverse Fisher matrix 
@@ -197,6 +203,30 @@ class FisherMatrix(object):
             ret.append(m)
         return ret
         
+    def fit(self, y):
+        logging.info('survey fit:')
+        p = self.params.copy()
+        m = np.zeros(self.npix)
+        m[:] = hp.UNSEEN
+        
+        B = self.JtW * y
+        p.free = self.fact(B)
+        m[self.pixel_set] = p['mag'].full
+        return p,m
+        
+
+def generate_gain_variations(dp, slopes=None, dt=4/24.):
+    if slopes is None:
+        logging.info('generating slopes:')
+        cellid = np.unique(dp.cell)
+        slopes = np.random.uniform(0., 0.005, size=len(cellid))
+    # dates within the night 
+    logging.info('generation delta meas. due to gain variations')
+    dt = 4. / 24.
+    m = np.floor(dp.mjd - dt) 
+    dt_vs_midnight = dp.mjd % m - dt - 0.5
+    dy = slopes[dp.cell] * dt_vs_midnight
+    return dy 
 
 
 def compute_cl(m, nside=1024, nest=True, lmax=1500):
@@ -243,6 +273,8 @@ if __name__ == "__main__":
                         help='lmax for cl')
     parser.add_argument('--plot_dir', default=None, type=str,
                         help='prepare and dump control plots')
+    parser.add_argument('--fit', default=0, 
+                        help='perform fits')
     parser.add_argument('obs', type=str, nargs='+',
                         help='observation file(s)')
     
@@ -251,13 +283,14 @@ if __name__ == "__main__":
     
     # compute the fisher matrix
     #    dp, model, H, fact = fisher_matrix(args.obs)
-    fm = FisherMatrix(args.obs, refcell=94)
+    fm = FisherMatrix(args.obs, refcell=94, perform_fit=True)
     
     logging.info('ubercal model')
     #    model = simple_ubercal_model(fm.dp)
     model = ubercal_model_with_photflat(fm.dp)
+    logging.info('params: %r' % model.params)
     fm.build_fisher_matrix(model)
-    fm.low_mem_state()    
+    fm.low_mem_state()
     fm.cholesky(fm.H)
     
     if args.dump_inv_fisher:
@@ -281,8 +314,7 @@ if __name__ == "__main__":
         sr = np.vstack(sr)
         # sigma map
         rms = np.std(sr, axis=0)
-        idx = sr[0,:] <= 0.
-        rms[idx] = hp.UNSEEN
+        rms[rms>1000.] = hp.UNSEEN
         
         cl = [compute_cl(r, nside=args.nside, nest=True, lmax=args.lmax) for r in sr]
         cl = np.vstack(cl)
@@ -302,24 +334,45 @@ if __name__ == "__main__":
         if args.plot_dir is not None:
             logging.info('writing plots -> %s' % args.plot_dir)            
             logging.info('calibrated magnitude uncertainty map')
-            hp.mollview(rms, nest=True, min=0., max=0.001)
+            hp.mollview(rms, nest=True, min=0., max=0.002)
             pl.gcf().savefig(args.plot_dir + os.sep + 'diag.png', bbox_inches='tight')
             for i,r in enumerate(sr):
                 logging.info('survey realizations')
-                hp.mollview(r, nest=True, min=-0.001, max=0.001)
+                hp.mollview(r, nest=True, min=-0.0025, max=0.0025)
                 pl.gcf().savefig(args.plot_dir + os.sep + 'r_%05d.png' % i, bbox_inches='tight')
                 
             fig = pl.figure()
-            #            l = np.arange(1, args.lmax+2, 1.)
             pl.plot(np.sqrt(cl[0]), 'k,-')
+            ax = pl.gca()
+            ax.set_xscale('log', nonposx='clip')
+            ax.set_yscale('log', nonposy='clip')
             fig.savefig(args.plot_dir + os.sep + 'cl_0.png', bbox_inches='tight')
+            
             fig = pl.figure()
-            for c in cl:
-                pl.plot(np.sqrt(c.mean(axis=0)), 'k,-')
-                fig.savefig(args.plot_dir + os.sep + 'cl_all.png', bbox_inches='tight')
+            u = np.sqrt(cl)
+            m = np.mean(u, axis=0)
+            s = np.std(u, axis=0)
+            x = np.arange(len(m))
+            pl.fill_between(x, m-s, m+s)
+            ax = pl.gca()
+            ax.set_xscale('log', nonposx='clip')
+            ax.set_yscale('log', nonposy='clip')
+            fig.savefig(args.plot_dir + os.sep + 'cl_all.png', bbox_inches='tight')
         
     
-
+    if args.fit:
+        y = np.zeros(len(fm.dp.nt))
+        dy = generate_gain_variations(fm.dp)
+        idx = fm.dp.refstar == 1
+        y[~idx] = -12. + dy[~idx]
+        y[idx] = 19.
+        p, m = fm.fit(y)
+        
+        np.savez(args.plot_dir + os.sep + 'fit.npz', m=m, p=p.full, title='fit with gain variations')
+        print p         
+        fig = pl.figure()
+        hp.mollview(m, nest=1, min=-0.005, max=0.005)
+        pl.gcf().savefig(args.plot_dir + os.sep + 'fit.png', bbox_inches='tight')
 
 
 # def build_proxy(l):

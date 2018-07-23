@@ -297,11 +297,12 @@ if __name__ == '__main__':
                         default=None,
                         help='output directory')
     parser.add_argument('--nside',
-                        default=64,
+                        default=64, type=int,
                         help='output directory')
     parser.add_argument('obslog', type=str,
                         help='obslog')
     args = parser.parse_args()
+    print args
     
     # open the obslog 
     #    cad = np.load(args.cadence_filename)
