@@ -5,10 +5,9 @@ Perform the observations, for a given cadence, in a given band
 from mx.DateTime import DateTimeFrom
 import os
 
-a = 2
 
 # shared with ubercal studies
-cadence_dir = '/scratch_ssd/regnault/LSST_SN_CADENCE/cadence_db'
+cadence_dir = '/sps/lsst/cadence/LSST_SN_CADENCE/cadence_db'
 
 cadence_name, mjd_min, mjd_max, nside = get_input()
 cadence_file = cadence_dir + os.sep + cadence_name + '.npy'
@@ -25,5 +24,7 @@ print ' '.join(cmd)
 logged_subprocess(cmd)
 
 
-seg_output = [(cadence_name, mjd_min, mjd_max, nside)]
+r = [(cadence_name, mjd_min, mjd_max, nside, sn) for sn in ['faint', 'normal']]
+
+seg_output = r
 
