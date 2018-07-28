@@ -49,6 +49,11 @@ kraken_2026 pontus_2002 kraken_2036 pontus_2502""".split()
 # AltSched variants
 cadences += """altsched_18_-90_30 altsched_18_-90_40""".split()
 
+# P. Yoachim experiments
+# cadences += """blobs_same_10yrs""".split()
+cadences += """blobs_mix_zmask10yrs blobs_same_10yrs blobs_same_10yrs blobs_same_zmask10yrs rolling_10yrs""".split()
+
+
 def get_tasks(cadences, nside):
     ret = []
     mjd_min = DateTimeFrom('2022-01-01').mjd
