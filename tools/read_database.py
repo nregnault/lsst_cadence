@@ -36,11 +36,34 @@ dtype = ['index', 'observationId', 'night',
 
 
 # these are the default columns Philippe used to retrieve
-# now, by default, we get all the colors
+# now, by default, we get all the columns
 default_cols = ['observationStartMJD', 'fiveSigmaDepth', 'filter', 'observationStartTime',
                 'fieldRA', 'fieldDec', 'visitTime', 'visitExposureTime', 'numExposures',
                 'seeingFwhm500', 'seeingFwhmGeom', 'seeingFwhmEff', 'moonPhase', 'airmass',
                 'skyBrightness']            
+
+
+class WPC_FORMAT:
+    table_name = 'SummaryAllProps'
+    keymap = {'observationStartMJD': 'mjd',
+              'filter': 'band',
+              'visitExposureTime': 'exptime',
+              'skyBrightness': 'sky',
+              'fieldRA': 'Ra',
+              'fieldDec': 'Dec',}
+
+class SLAIR_FORMAT:
+    table_name = 'observations'
+    keymap = {'RA': 'Ra',
+              'dec': 'Dec',
+              'filter': 'band',
+              'FWHMeff': 'seeingFwhmEff',
+              'skybrightness': 'sky',
+              'fivesigmadepth': 'fiveSigmaDepth',}
+
+class DEFAULT_FORMAT:
+    table_name = 'SummaryAllProps'
+    keymap = {}
 
 
 class Read_Sqlite:
@@ -56,6 +79,7 @@ class Read_Sqlite:
         self.tables = self.cur.fetchall()
         self.sql = self.sql_selection(**sel)
         #        self.data = self.groom_data(self.get_data(sql))
+        self.observation_table_name = sel.get('observation_table_name', 'SummaryAllProps')
         
     def sql_selection(self, **sel):
         sql = ''
@@ -80,13 +104,13 @@ class Read_Sqlite:
         sql_request = 'SELECT '
         if cols is None:
             sql_request += ' * '            
-            self.cur.execute('PRAGMA TABLE_INFO(SummaryAllProps)')
+            self.cur.execute('PRAGMA TABLE_INFO(%s)' % self.observation_table_name)
             r = self.cur.fetchall()
             cols = [c[1] for c in r]
         else:
             sql_request += ','.join(cols)
             
-        sql_request += 'FROM SummaryAllProps'
+        sql_request += 'FROM %s' % self.observation_table_name
         if sql is not None and len(sql) > 0:
             sql_request += ' WHERE ' + sql
         sql_request += ';'
@@ -144,23 +168,26 @@ if __name__ == "__main__":
                         help='cadence database')
     parser.add_argument('--to_degrees', default=False,
                         help='convert Ra and Dec to degrees')
+    parser.add_argument('--wpc', default=False,
+                        help='.db file uses the format of the white paper call')
+    parser.add_argument('--slair', default=False,
+                        help='.db file uses the format of the SLAIR (feature based) cadences')
+    
     args = parser.parse_args()
     
     print args
-
-    keymap = {'observationStartMJD': 'mjd',
-              'filter': 'band',
-              'visitExposureTime': 'exptime',
-              'skyBrightness': 'sky',
-              'fieldRA': 'Ra',
-              'fieldDec': 'Dec',}
-
-    
-    reader = Read_Sqlite(args.sql_database)
+    if args.wpc:
+        format = WPC_FORMAT
+    elif args.slair:
+        format = SLAIR_FORMAT
+    else:
+        format = DEFAULT_FORMAT
+        
+    reader = Read_Sqlite(args.sql_database, observation_table_name=format.table_name)
     sql = reader.sql_selection(**args.__dict__)
     data = reader.get_data(cols=None, sql=sql,
                            to_degrees=args.to_degrees,
-                           new_col_names=keymap)
+                           new_col_names=format.keymap)
     np.save(args.output, data)
 
 
