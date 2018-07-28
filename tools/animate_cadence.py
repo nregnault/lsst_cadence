@@ -33,6 +33,8 @@ from saunerie import psf, snsim
 from pycosmo import cosmo
 
 
+instrument_name = 'LSSTPG'
+
 
 def main(filename='h.npy.npz'):
     f = np.load(filename)
@@ -73,7 +75,7 @@ class Metrics(object):
         
         # add an etc
         logging.info('loading ETC')
-        self.etc = psf.find('LSSTPG') if etc is None else etc
+        self.etc = psf.find(instrument_name) if etc is None else etc
         suffix = self.etc.instrument.name + '::'
         self.pixel_obs['bandname'][:] = np.core.defchararray.add(suffix, self.pixel_obs['band'])
         
@@ -266,7 +268,7 @@ class CumulativeNumberOfSNe(object):
     def __call__(self, zz):
         return np.interp(zz, self.z, self.nsn, left=0.)
     
-def movie(l, zmax=0.5, nside=64, dump_plot_dir=None, nsn_func=None,
+def movie(l, zlim=0.7, zstep=0.01, nside=64, dump_plot_dir=None, nsn_func=None,
           bands=['g', 'r', 'i', 'z'],
           exclude_bands=['u', 'y'],
           vmax_nsn=None,
@@ -285,6 +287,13 @@ def movie(l, zmax=0.5, nside=64, dump_plot_dir=None, nsn_func=None,
     zmax_tot = np.zeros(m.npix)
     zmax_nhits = np.zeros(m.npix)
     tmp_map = np.zeros(m.npix)
+
+    # median values 
+    nsn_tot_history = []
+    nsn_inst_history = []
+    median_cadence_inst_history = []
+    zmax_inst_history = []
+    
     
     # loop on the survey mjd -- by steps of 1 day
     for mjd in np.arange(m.mjd.min(), m.mjd.max()+1):
@@ -303,7 +312,7 @@ def movie(l, zmax=0.5, nside=64, dump_plot_dir=None, nsn_func=None,
         # loop over the redshift range, and check the resolution in
         # color as a function of redshift. Store the highest redshift
         # that passes the cuts 
-        for z in np.arange(0.1, 0.71, 0.01)[::-1]:
+        for z in np.arange(0.1, zlim+zstep, zstep)[::-1]:
             # select the window 
             s,u = m.select_window(mjd, z=z, exclude_bands=exclude_bands)
             
@@ -323,16 +332,21 @@ def movie(l, zmax=0.5, nside=64, dump_plot_dir=None, nsn_func=None,
 
             # cut on sigma amplitude
             if np.abs(z-0.3) <= 0.01:
-                snr_g = m.amplitude_snr(mjd, 'LSSTPG::g', z, s)
-                snr_r = m.amplitude_snr(mjd, 'LSSTPG::r', z, s)
-                snr_i = m.amplitude_snr(mjd, 'LSSTPG::i', z, s)
-                snr_z = m.amplitude_snr(mjd, 'LSSTPG::z', z, s)                
+                snr_g = m.amplitude_snr(mjd, instrument_name + '::g', z, s)
+                snr_r = m.amplitude_snr(mjd, instrument_name + '::r', z, s)
+                snr_i = m.amplitude_snr(mjd, instrument_name + '::i', z, s)
+                snr_z = m.amplitude_snr(mjd, instrument_name + '::z', z, s)                
             if z <= 0.3:
                 snr_ok = m.cut_on_amplitude_snr(mjd, z, s, 
-                                                snr_cuts = {'LSSTPG::g': 30., 'LSSTPG::r': 40., 'LSSTPG::i': 30., 'LSSTPG::z': 20.})
+                                                snr_cuts = {instrument_name + '::g': 30., 
+                                                            instrument_name + '::r': 40., 
+                                                            instrument_name + '::i': 30., 
+                                                            instrument_name + '::z': 20.})
             else:
                 snr_ok = m.cut_on_amplitude_snr(mjd, z, s, 
-                                                snr_cuts = {'LSSTPG::r': 40., 'LSSTPG::i': 30., 'LSSTPG::z': 20.})
+                                                snr_cuts = {instrument_name + '::r': 40., 
+                                                            instrument_name + '::i': 30., 
+                                                            instrument_name + '::z': 20.})
             
             # update max-z map 
             zmax[(cz>0) & (snr_ok>0.) & (zmax==0.)] = z
@@ -353,13 +367,14 @@ def movie(l, zmax=0.5, nside=64, dump_plot_dir=None, nsn_func=None,
         cadence_nhits[c>0] += 1
         zmax_tot += zmax
         zmax_nhits[zmax>0] += 1
-            
+        
         #        m.plot_map(first, fig=1, vmin=0., vmax=1.25, sub=221, cbar=False)
         #        m.plot_map(last, fig=1, vmin=0., vmax=1.25, sub=222, cbar=False)
         fig = plt.figure(1, figsize=(15.,7.5))
         human_date = DateTimeFromMJD(mjd).strftime('%Y-%m-%d')
         fig.suptitle('[%s  mjd=%6.0f]' % (human_date, mjd))
         m.plot_map(nsn_tot, fig=1, sub=231, vmin=0., vmax=vmax_nsn, cbar=True, title='$N_{SNe}: %6.0f$ (tot)' % nsn_tot.sum())
+        nsn_tot_history.append((mjd,nsn_tot.sum()))
         tmp_map[:] = hp.UNSEEN ; idx = zmax_nhits>0
         tmp_map[idx] = zmax_tot[idx] / zmax_nhits[idx]
         med = np.median(tmp_map[tmp_map>0])
@@ -370,8 +385,10 @@ def movie(l, zmax=0.5, nside=64, dump_plot_dir=None, nsn_func=None,
         m.plot_map(tmp_map, fig=1, sub=233, vmin=0., vmax=1., cbar=True, title='cadence [day$^{-1}$] (avg) [%4.2f]' % (med if ~np.isnan(med) else 0))
         
         m.plot_map(nsn_inst, fig=1, sub=234, vmin=0., vmax=0.015, cbar=True, title='$N_{SNe}: %4.0f$' % nsn_inst.sum())
+        nsn_inst_history.append((mjd,nsn_inst.sum()))
         med = np.median(zmax[zmax>0])
         m.plot_map(zmax, fig=1, vmin=0., vmax=0.5, sub=235, cbar=True, title='$z_{max}$ [%4.2f]' % (med if ~np.isnan(med) else 0))
+        zmax_inst_history.append((mjd,(med if ~np.isnan(med) else 0)))
         med = np.median(c[c>0])
         m.plot_cadence(c, fig=1, dump_plot_dir=dump_plot_dir, 
                        vmin=0.,
@@ -380,6 +397,7 @@ def movie(l, zmax=0.5, nside=64, dump_plot_dir=None, nsn_func=None,
                        sub=236,
                        title='cadence [day$^{-1}$] [%4.2f]' % (med if ~np.isnan(med) else 0.),
                        cbar=True)
+        median_cadence_inst_history.append((mjd,(med if ~np.isnan(med) else 0.)))
 
         # SNR debug plots 
         fig = plt.figure(2)
@@ -392,7 +410,18 @@ def movie(l, zmax=0.5, nside=64, dump_plot_dir=None, nsn_func=None,
         # cadence debug plots
 
         m.fig_odometer += 1
-        
+
+
+    # dump history
+    nsn_tot_history = np.rec.fromrecords(nsn_tot_history, names=['mjd', 'val'])
+    nsn_inst_history = np.rec.fromrecords(nsn_inst_history, names=['mjd', 'val'])
+    zmax_inst_history = np.rec.fromrecords(zmax_inst_history, names=['mjd', 'val'])
+    median_cadence_inst_history = np.rec.fromrecords(median_cadence_inst_history, names=['mjd', 'val'])
+    np.save(dump_plot_dir + os.sep + 'nsn_tot_history.npy', nsn_tot_history)
+    np.save(dump_plot_dir + os.sep + 'nsn_inst_history.npy', nsn_inst_history)
+    np.save(dump_plot_dir + os.sep + 'zmax_inst_history.npy', zmax_inst_history)
+    np.save(dump_plot_dir + os.sep + 'median_cadence_inst_history.npy', median_cadence_inst_history)
+
         
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="make a movie out of a cadence")
@@ -403,7 +432,7 @@ if __name__ == "__main__":
                         default=None,
                         help='file containing the tabulated cumulative number of SNe')
     parser.add_argument('--nside',
-                        default=128,
+                        default=128, type=int,
                         help='nside to use in the analysis')
     parser.add_argument('--ebv-mask', 
                         default=None, dest='ebv_mask',
