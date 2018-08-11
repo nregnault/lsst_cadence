@@ -2,6 +2,7 @@
 
 import os
 import os.path as op
+from exceptions import ValueError
 
 import logging
 logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
@@ -43,14 +44,35 @@ default_cols = ['observationStartMJD', 'fiveSigmaDepth', 'filter', 'observationS
                 'skyBrightness']            
 
 
+def _katm_column(data):
+    """
+    """
+    logging.info('update kAtm values')
+    katm = np.zeros(len(data), dtype='float64')        
+    for b in kAtm.keys():
+        katm[data['filter'] == b] = kAtm[b]
+    return katm, 'kAtm'
+
+def _desc_dither_columns(data, dithers):
+    logging.info('adding dithers')
+    if np.any(dithers['observationId'] - data['observationId']):
+        raise ValueError('data and dithers not aligned')
+    vals, names = [], []
+    for nm in ['descDitheredRA', 'descDitheredDec', 'descDitheredRotTelPos']:
+        names.append(nm)
+        vals.append(data[nm])
+    return vals, names
+        
 class WPC_FORMAT:
     table_name = 'SummaryAllProps'
     keymap = {'observationStartMJD': 'mjd',
               'filter': 'band',
               'visitExposureTime': 'exptime',
               'skyBrightness': 'sky',
-              'fieldRA': 'Ra',
-              'fieldDec': 'Dec',}
+              'descDitheredRA': 'Ra',
+              'descDitheredDec': 'Dec',
+              'descDitheredRotTelPos': 'rotTelPos',
+    }
 
 class SLAIR_FORMAT:
     table_name = 'observations'
@@ -80,6 +102,7 @@ class Read_Sqlite:
         self.sql = self.sql_selection(**sel)
         #        self.data = self.groom_data(self.get_data(sql))
         self.observation_table_name = sel.get('observation_table_name', 'SummaryAllProps')
+        self.dithers = sel.get('dithers', None)
         
     def sql_selection(self, **sel):
         sql = ''
@@ -97,9 +120,9 @@ class Read_Sqlite:
             sql += 'proposalId=%d' % sel['proposalId']
         return sql
         
-    def get_data(self, cols=None, sql=None, to_degrees=False, new_col_names=None):
+    def _get_rows(self, cols=None, sql=None):
         """
-        Get the contents of the SQL database dumped into a numpy rec array
+        Get the contents of the SQL database as a list of rows
         """
         sql_request = 'SELECT '
         if cols is None:
@@ -120,31 +143,45 @@ class Read_Sqlite:
         self.cur.execute(sql_request)
         rows = self.cur.fetchall()
         logging.info('done. %d entries' % len(rows))
-
+        return rows, cols
+    
+    def _to_recarray(self, rows, cols, new_col_names=None):
+        """
+        convert list of rows into a recarray 
+        """
         logging.info('converting dump into numpy array')
         colnames = [str(c) for c in cols]
         d = np.rec.fromrecords(rows, names=colnames)
-        logging.info('update kAtm values')
-        katm = np.zeros(len(d), dtype='float64')        
+        
+        # extend the array with additional values
+        cols = [_katm_column(d)]
+        if self.dithers is not None:
+            cols.extend(_desc_dither_columns(d, self.dithers))
+            
         logging.info('extending output array')
-        d = croaks.rec_append_fields(d, data=[katm], names=['kAtm'])
-        for b in kAtm.keys():
-            d['kAtm'][d['filter'] == b] = kAtm[b]
+        d = croaks.rec_append_fields(d, data=[c[0] for c in cols], names=[c[1] for c in cols])
         logging.info('done.')
 
-        if to_degrees:
-            d['fieldRA'] *= (180. / np.pi)
-            d['fieldDec'] *= (180. / np.pi)
-
+        # remapping column names to pipeline default format
         if new_col_names is not None:
-            self.update_col_names(d, new_col_names)
-            
+            self._update_col_names(d, new_col_names)
+
         return d
 
-    def update_col_names(self, d, new_col_names):
+    def _update_col_names(self, d, new_col_names):
         names = list(d.dtype.names)
         d.dtype.names = [new_col_names[n] if n in new_col_names else n for n in d.dtype.names]
         return d
+        
+    def get_data(self, cols=None, sql=None, to_degrees=False, new_col_names=None):
+        rows, cols = self._get_rows(cols)
+        d = self._to_recarray(rows, cols, new_col_names)
+        if to_degrees:
+            d['Ra'] *= (180. / np.pi)
+            d['Dec'] *= (180. / np.pi)
+        return d
+            
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -164,13 +201,16 @@ if __name__ == "__main__":
     parser.add_argument('--year',
                         default=None, type=float,
                         help='only pointing taken between Jan 1st and Dec 31st of YEAR')
+    parser.add_argument('--csv-dithers',
+                        default=None, type=str,
+                        help='auxiliary CSV file containing the dithers applied to each exposure')
     parser.add_argument('sql_database',
                         help='cadence database')
     parser.add_argument('--to_degrees', default=False,
                         help='convert Ra and Dec to degrees')
-    parser.add_argument('--wpc', default=False,
+    parser.add_argument('--wpc', default=False, action='store_true',
                         help='.db file uses the format of the white paper call')
-    parser.add_argument('--slair', default=False,
+    parser.add_argument('--slair', default=False, action='store_true',
                         help='.db file uses the format of the SLAIR (feature based) cadences')
     
     args = parser.parse_args()
@@ -183,11 +223,20 @@ if __name__ == "__main__":
     else:
         format = DEFAULT_FORMAT
         
-    reader = Read_Sqlite(args.sql_database, observation_table_name=format.table_name)
+
+    if args.csv_dithers is not None:
+        logging.info('loading dithers from auxiliary csv file: %s' % args.csv_dithers)
+        dithers = croaks.NTuple.fromcsv(args.csv_dithers)
+    else:
+        dithers = None
+        
+    reader = Read_Sqlite(args.sql_database, observation_table_name=format.table_name, dithers=dithers)
     sql = reader.sql_selection(**args.__dict__)
     data = reader.get_data(cols=None, sql=sql,
                            to_degrees=args.to_degrees,
                            new_col_names=format.keymap)
+
+        
     np.save(args.output, data)
 
 
