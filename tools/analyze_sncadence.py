@@ -55,61 +55,176 @@ for m in maps:
     #PiYG.set_under('w')
 
 
-class PixelObslog(object):
-    """Interface with a Pixel observation log 
-    Manages a cache and an iterator. 
+
+class PixelLightcurveWindow():
+    """Manages the fraction around 
+    
     """
     
-    def __init__(self, pxlobs, dt_iter=1., sliding_window=(-25., 45.)):
+    def __init__(self, peak_mjd, pixel_obs, visits, 
+                 map_npix=hp.nside2npix(64),
+                 min_restframe_phase_range=(-10, +30.),
+                 max_restframe_phase_range=(-20, +45.)):
+        self.peak_mjd = peak_mjd
+        self.pixel_obs = pixel_obs
+        self.visits = visits
+        self.npix = map_npix
+        self.min_restframe_phase_range = np.array(min_restframe_phase_range)
+        self.max_restframe_phase_range = np.array(max_restframe_phase_range)
+
+    def __len__(self):
+        return len(self.visits)
+        
+    def first_last_visits(self, z=0.):
+        """visits before and after a minimum restframe phase range. 
+        """
+        mjd_min_up,  mjd_max_low = self.peak_mjd + self.min_restframe_phase_range * (1.+z)
+        mjd_min_low, mjd_max_up  = self.peak_mjd + self.max_restframe_phase_range * (1.+z)
+        idx_min = (self.visits['mjd']>=mjd_min_low) & (self.visits['mjd']<=mjd_min_up)
+        idx_max = (self.visits['mjd']>=mjd_max_low) & (self.visits['mjd']<=mjd_max_up)
+        
+        c_min = np.bincount(self.visits['pixel'][idx_min], minlength=self.npix).astype(float)
+        c_max = np.bincount(self.visits['pixel'][idx_max], minlength=self.npix).astype(float)        
+        return c_min, c_max
+
+    def restframe_cadence(self, z, band=None):
+        """observation cadence in the SN restframe
+        """
+        mjd_min, mjd_max = self.visits['mjd'].min(), self.visits['mjd'].max()
+        dt = (mjd_max-mjd_min) / (1.+z)
+        if band is None:
+            c = np.bincount(self.visits['pixel'], minlength=self.npix).astype(float)
+        else:
+            idx = self.visits['band'] == band
+            c = np.bincount(self.visits['pixel'][idx], minlength=self.npix).astype(float)
+        c /= dt
+        return c
+        
+    def snr(self, z, lcmodel):
+        """given a LC model and a redshift return the SNR of each point 
+        """
+        pass
+    
+    def amplitude_snr(self, z, lcmodel):
+        """
+        """
+        pass
+
+        
+
+
+class PixelObslog(object):
+    """Iterable interface with a Pixel observation log 
+
+
+    .. note : Since the typical pixel observation logs we deal with
+          are large (10 years of survey => 2,4M exposures, nside=64 =>
+          24,000 pixels in the southern sky, resulting in about 25M
+          entries in the pixel log), this class manages a cache, in
+          order to accelerate the requests.
+    """
+    
+    def __init__(self, pxlobs, timestep=1, restframe_phase_range=(-25., 45.), 
+                 max_redshift=1.2, exclude_bands=['u', 'y']):
         self.pixel_obs = pxlobs
+        self.visits = self._build_visits(exclude_bands=exclude_bands)
         self.mjd = np.unique(np.floor(pxlobs['mjd'])).astype(int)
         self.mjd = self.mjd[self.mjd>0] # why that ? 
-        self.dt_iter = dt_iter
-        self.sliding_window = sliding_window
+        self.min_mjd, self.max_mjd = np.min(self.mjd), np.max(self.mjd)
+        self.timestep = timestep
+        self.cache_margin = np.array((-30., 100.))
+        
+        self.restframe_phase_range = np.array(restframe_phase_range)
+        self.sliding_window = np.array(restframe_phase_range) * (1. + max_redshift)
+        self.max_redshift = max_redshift
+        self.exclude_bands = exclude_bands
         self.reinit()
-
+        
     def reinit(self):
+        """re-initialize the iterator to zero.
+        """
         self.fig_odometer = 0
-        self.cache_mjd_min = 0.
-        self.cache_mjd_max = 0.
+        self.cache_min_mjd = 0.
+        self.cache_max_mjd = 0.
         self.cache = None
+        self.current_mjd = self.min_mjd
 
     def __iter__(self):
+        """iterator function. 
+        """
         self.reinit()
         return self 
 
     def next(self):
-        self._update_cache()
-        return self.select_window()
+        """the next function in the iterator 
+
+        .. note : to be renamed __next__ when upgrading to python 3
+        """
+        dt = self.current_mjd + self.sliding_window
+        self._update_cache(dt[0], dt[1])
+        self.current_mjd += self.timestep
+        r = self.select_window(self.current_mjd)
+        if len(r) == 0 and (self.current_mjd > self.max_mjd):
+            raise StopIteration
+        return r
         
-    def _update_cache(self, mjd_min, mjd_max, **kwargs):
+    def _build_visits(self, exclude_bands=None):
+        """Ligher index, containing pixel/band/night(mjd) information.
+        
+        Build a lighter structure, that contains just the information
+        needed to count the number of individual nights during which a
+        pixel was observed.
+        """
+        logging.info('build night/band array...')
+        mjd = np.floor(self.pixel_obs['mjd']).astype(int)
+        visits = np.rec.fromarrays((self.pixel_obs['pixel'].astype(int), mjd, self.pixel_obs['band']),
+                                   names=['pixel', 'mjd', 'band'])
+        logging.info('unique...')
+        visits = np.unique(visits)
+        logging.info('done...')
+        
+        idx = np.zeros(len(visits)).astype(bool)
+        if exclude_bands is not None:
+            for b in exclude_bands:
+                idx |= (visits['band'] == b)
+        logging.info('%d visits selected in bands: %r' % ((~idx).sum(), np.unique(visits[~idx]['band'])))
+        return visits[~idx]
+                
+    def _update_cache(self, min_mjd, max_mjd, **kwargs):
         """Update the internal pixel log cache
 
         Since the pixel log is pretty large, we keep a smaller
         fraction of it, that is enough for ~50 iterations. This speeds
         up significantly the searches.
+        
         """
         if self.cache is not None and \
-           (mjd_max <= self.cache_mjd_max) and \
-           (mjd_min >= self.cache_mjd_min):
+           (max_mjd <= self.cache_max_mjd) and \
+           (min_mjd >= self.cache_min_mjd):
             return 
         d = self.pixel_obs
-        mjd_min, mjd_max = mjd_min-20., mjd_max + 50.
+        min_mjd = min_mjd + self.cache_margin[0]
+        max_mjd = max_mjd + self.cache_margin[1]
         logging.debug('cache fault -> updating [%7.0f,%7.0f]' % \
-                      (mjd_min, mjd_max))
-        idx = (d['mjd']>=mjd_min) & (d['mjd']<=mjd_max)
+                      (min_mjd, max_mjd))
+        
+        # select observations + cut on unused bands
+        idx = (d['mjd']>=min_mjd) & (d['mjd']<=max_mjd)
         if 'exclude_bands' in kwargs:
             for b in kwargs['exclude_bands']:
                 idx &= (d['band'] != b)
         self.cache = d[idx]
         self.cache['mjd'] = np.floor(self.cache['mjd'])
-        self.cache_mjd_max = mjd_max
+        self.cache_min_mjd = min_mjd
+        self.cache_max_mjd = max_mjd
         
-        visits = np.rec.fromarrays((self.cache['pixel'], self.cache['mjd'], self.cache['band']),
-                                   names=['pixel', 'mjd', 'band'])
-        self.visit_cache = np.unique(visits)
+        # build a lighter structure, that contains just the visits 
+        logging.debug('cache fault -> updating visits [%7.0f,%7.0f]' % \
+                      (min_mjd, max_mjd))        
+        v = self.visits
+        idx = (v['mjd']>=min_mjd) & (v['mjd']<=max_mjd)
+        self.visit_cache = np.unique(v[idx])
 
-            
     def select_window(self, mjd, **kwargs):
         """
         Select the observation window, for a SN at a given redshift, that
@@ -124,24 +239,90 @@ class PixelObslog(object):
           u (ndarray of floats):
         """
         z = kwargs.get('z', 0.)
-        mjd_min, mjd_max = mjd + self.rf_phase_range * (1.+z)
-        self._update_cache(mjd_min, mjd_max, **kwargs)
-        logging.debug('z: %5.2f mjd: [%f,%f]' % (z, mjd_min, mjd_max))        
+        min_mjd, max_mjd = mjd + self.restframe_phase_range * (1.+z)
+        self._update_cache(min_mjd, max_mjd, **kwargs)
+        logging.debug('z: %5.2f mjd: [%f,%f]' % (z, min_mjd, max_mjd))        
         
         # extract the cache contents that fit in the search window
-        idx = (self.cache['mjd']>mjd_min) & (self.cache['mjd']<mjd_max)
+        idx = (self.cache['mjd']>min_mjd) & (self.cache['mjd']<max_mjd)
         if 'band' in kwargs:
             idx &= (self.cache['band'] == kwargs['band'])
         r = self.cache[idx]
         
         # extract the night cache contents that fit in the search window
-        idx = (self.visit_cache['mjd']>mjd_min) & (self.visit_cache['mjd']<mjd_max)
+        idx = (self.visit_cache['mjd']>min_mjd) & (self.visit_cache['mjd']<max_mjd)
         if 'band' in kwargs:    
             idx &= (self.visit_cache['band'] == kwargs['band'])
         u = self.visit_cache[idx]
         
-        return r, u
+        return PixelLightcurveWindow(mjd, r, u)
 
+
+
+class Metrics(object):
+    
+    def __init__(self, sn_rate, nside=64, ):
+        self.nsn_inst = None
+        self.nsn_tot = None
+        self.cadence_inst = None
+        self.cadence_tot = None
+        self.maxz_inst = None
+        self.maxz_tot = None
+
+        self.dNdz = None
+
+    def __call__(self, lc):
+        pass
+
+
+
+class DetectedTransient(Metrics):
+    
+    def __init__(self, **kwargs):
+        pass
+
+    def __call__(self, lc):
+        pass
+
+class TwoColorsOnTheRise(Metrics):
+    
+    def __init__(self, **kwargs):
+        pass
+
+    def __call__(self, lc):
+        pass
+
+
+class HDGradeSN(Metrics):
+    
+    def __init__(self, **kwargs):
+        pass
+
+    def __call__(self, lc):
+        pass
+
+
+class HDGradeSNWithTwoColorsOnTheRise(Metrics):
+    
+    def __init__(self, **kwargs):
+        pass
+
+    def __call__(self, lc):
+        pass
+    
+
+
+# maybe these should be just functions 
+class Plotter(object):
+    
+    def __init__(self):
+        pass
+
+    def plot_movie_nsn_map(self, metrics):
+        pass
+
+    def plot_final_map(self, metrics):
+        pass
 
     
 
@@ -161,8 +342,8 @@ class Metrics(object):
         self.min_rf_phase_range = np.array(rf_phase_range) + np.array([10., -10.])
         self.accept = []
         self.fig_odometer = 0
-        self.cache_mjd_min = 0.
-        self.cache_mjd_max = 0.
+        self.cache_min_mjd = 0.
+        self.cache_max_mjd = 0.
         self.cache = None
         
         # add an etc
@@ -215,8 +396,8 @@ class Metrics(object):
     
     def _update_cache(self, mjd_min, mjd_max, **kwargs):
         if self.cache is None or \
-           (mjd_max > self.cache_mjd_max) or \
-           (mjd_min < self.cache_mjd_min):
+           (mjd_max > self.cache_max_mjd) or \
+           (mjd_min < self.cache_min_mjd):
             d = self.pixel_obs
             mjd_min, mjd_max = mjd_min-20., mjd_max + 50.
             logging.debug('cache fault -> updating [%7.0f,%7.0f]' % \
@@ -227,7 +408,6 @@ class Metrics(object):
                     idx &= (d['band'] != b)
             self.cache = d[idx]
             self.cache['mjd'] = np.floor(self.cache['mjd'])
-            self.cache_mjd_max = mjd_max
             visits = np.rec.fromarrays((self.cache['pixel'], self.cache['mjd'], self.cache['band']),
                                        names=['pixel', 'mjd', 'band'])
             self.visit_cache = np.unique(visits)
