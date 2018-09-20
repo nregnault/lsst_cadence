@@ -56,7 +56,9 @@ for m in maps:
 
 
 class Metrics(object):
+    """
     
+    """
     def __init__(self, pxlobs, z=0.5, rf_phase_range=(-20., 45.), nside=64, etc=None, lc_template=None, model_filename=None):
         """
         Constructor. Takes a file 
@@ -188,7 +190,7 @@ class Metrics(object):
         c = np.zeros(self.npix)
         p_tpl, v_tpl = self.get_lc_template(band=bandname,z=z)
         if p_tpl is None or v_tpl is None:
-            logging.warning('unable to find LC template for (%s,%f)' % (band,z))
+            logging.warning('unable to find LC template for (%s,%f)' % (bandname,z))
             return None
         #        self.sn['z'] = z
         #        self.sn['dL'] = self.cosmo.dL(z)
@@ -268,7 +270,7 @@ class CumulativeNumberOfSNe(object):
     def __call__(self, zz):
         return np.interp(zz, self.z, self.nsn, left=0.)
     
-def movie(l, zlim=0.7, zstep=0.01, nside=64, dump_plot_dir=None, nsn_func=None,
+def movie(l, zlim=0.1, zstep=0.01, nside=64, dump_plot_dir=None, nsn_func=None,
           bands=['g', 'r', 'i', 'z'],
           exclude_bands=['u', 'y'],
           vmax_nsn=None,
@@ -312,7 +314,8 @@ def movie(l, zlim=0.7, zstep=0.01, nside=64, dump_plot_dir=None, nsn_func=None,
         # loop over the redshift range, and check the resolution in
         # color as a function of redshift. Store the highest redshift
         # that passes the cuts 
-        for z in np.arange(0.1, zlim+zstep, zstep)[::-1]:
+        #        for z in np.arange(0.1, zlim+zstep, zstep)[::-1]:
+        for z in np.arange(0.05, zlim+zstep, zstep)[::-1]:
             # select the window 
             s,u = m.select_window(mjd, z=z, exclude_bands=exclude_bands)
             
@@ -331,6 +334,7 @@ def movie(l, zlim=0.7, zstep=0.01, nside=64, dump_plot_dir=None, nsn_func=None,
             cz *= c0_ok
 
             # cut on sigma amplitude
+            snr_g = snr_r = snr_i = snr_z = None
             if np.abs(z-0.3) <= 0.01:
                 snr_g = m.amplitude_snr(mjd, instrument_name + '::g', z, s)
                 snr_r = m.amplitude_snr(mjd, instrument_name + '::r', z, s)
@@ -402,10 +406,11 @@ def movie(l, zlim=0.7, zstep=0.01, nside=64, dump_plot_dir=None, nsn_func=None,
         # SNR debug plots 
         fig = plt.figure(2)
         fig.suptitle('[%s  mjd=%6.0f]' % (human_date, mjd))
-        m.plot_map(snr_g, fig=2, sub=221, vmin=0., vmax=30., cbar=True, title='SNR[g]')
-        m.plot_map(snr_r, fig=2, sub=222, vmin=0., vmax=40., cbar=True, title='SNR[r]')
-        m.plot_map(snr_i, fig=2, sub=223, vmin=0., vmax=30., cbar=True, title='SNR[i]')        
-        m.plot_map(snr_z, fig=2, sub=224, vmin=0., vmax=20., cbar=True, title='SNR[z]', dump_plot_dir=dump_plot_dir, prefix='snr')
+        if snr_g is not None and snr_r is not None and snr_i is not None and snr_z is not None:
+            m.plot_map(snr_g, fig=2, sub=221, vmin=0., vmax=30., cbar=True, title='SNR[g]')
+            m.plot_map(snr_r, fig=2, sub=222, vmin=0., vmax=40., cbar=True, title='SNR[r]')
+            m.plot_map(snr_i, fig=2, sub=223, vmin=0., vmax=30., cbar=True, title='SNR[i]')        
+            m.plot_map(snr_z, fig=2, sub=224, vmin=0., vmax=20., cbar=True, title='SNR[z]', dump_plot_dir=dump_plot_dir, prefix='snr')
 
         # cadence debug plots
 
@@ -421,6 +426,7 @@ def movie(l, zlim=0.7, zstep=0.01, nside=64, dump_plot_dir=None, nsn_func=None,
     np.save(dump_plot_dir + os.sep + 'nsn_inst_history.npy', nsn_inst_history)
     np.save(dump_plot_dir + os.sep + 'zmax_inst_history.npy', zmax_inst_history)
     np.save(dump_plot_dir + os.sep + 'median_cadence_inst_history.npy', median_cadence_inst_history)
+    np.save(dump_plot_dir + os.sep + 'nsn_tot.npy', nsn_tot)
 
         
 if __name__ == "__main__":
@@ -431,6 +437,9 @@ if __name__ == "__main__":
     parser.add_argument('--nsn',
                         default=None,
                         help='file containing the tabulated cumulative number of SNe')
+    parser.add_argument('--zmax', 
+                        default=0.7, type=float,
+                        help='highest redshift to test')
     parser.add_argument('--nside',
                         default=128, type=int,
                         help='nside to use in the analysis')
@@ -475,7 +484,10 @@ if __name__ == "__main__":
         logging.info('stripping masked pixels: %d -> %d' % (len(idx), len(l)))
         
     #    m = Metrics(l)
-    movie(l, nside=args.nside, dump_plot_dir=args.output_dir, nsn_func=nsn_func, vmax_nsn=args.vmax_nsn, bands=['g', 'r', 'i', 'z'],
+    movie(l, zlim=args.zmax, nside=args.nside, 
+          dump_plot_dir=args.output_dir, 
+          nsn_func=nsn_func, vmax_nsn=args.vmax_nsn, 
+          bands=['g', 'r', 'i', 'z'],
           salt2=args.salt2,
           lc_template=args.lc_template,
           min_cadence=args.min_cadence)

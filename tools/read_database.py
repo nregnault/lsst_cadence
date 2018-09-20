@@ -11,6 +11,7 @@ import argparse
 import sqlite3
 import numpy as np
 import croaks 
+from numpy.lib.recfunctions import join_by
 
 
 kAtm = { 'u': 0.50,
@@ -53,15 +54,42 @@ def _katm_column(data):
         katm[data['filter'] == b] = kAtm[b]
     return katm, 'kAtm'
 
+
+def _remove_duplicate_entries(data):
+    """The cadence database dumps may contain duplicate entries, allocated
+    simultaneously to two surveys (typically WFD and DDF). We try to
+    remove them here.
+    """
+    logging.info('removing duplicate entries')
+    c = np.bincount(data['observationId'])
+    dup_ids = np.where(c>1)
+    idx = np.in1d(data['observationId'], dup_ids)
+    logging.info('%d duplicates detected' % idx.sum())
+    oid = data['observationId'][idx]
+    d = np.zeros(len(oid))
+    d[:-1] = (oid[1:] - oid[:-1]) == 0
+    d *= data['observationId'][idx]
+    data['observationId'][idx] = d
+    r = data[data['observationId']>0]
+    logging.info('size: %d -> %d' % (len(data), len(r)))
+    return r
+    
+
 def _desc_dither_columns(data, dithers):
     logging.info('adding dithers')
-    if np.any(dithers['observationId'] - data['observationId']):
-        raise ValueError('data and dithers not aligned')
-    vals, names = [], []
-    for nm in ['descDitheredRA', 'descDitheredDec', 'descDitheredRotTelPos']:
-        names.append(nm)
-        vals.append(data[nm])
-    return vals, names
+    d = join_by('observationId', data, dithers, jointype='inner', 
+                defaults={'descDitheredRA': 0., 'descDitheredDec': 0., 'descDitheredRotTelPos': 0.}, 
+                usemask=False)
+    #    nm = []
+    #    for nn in d.dtype.names:
+    #        if nn == 'observationId':
+    #            nm.append(nn)
+    #        else:
+    #            nm.append(nn[:-1])
+    #    d.dtype.names = nm
+    d['rotTelPos'] = d['descDitheredRotTelPos']
+    return d
+        
         
 class WPC_FORMAT:
     table_name = 'SummaryAllProps'
@@ -71,7 +99,7 @@ class WPC_FORMAT:
               'skyBrightness': 'sky',
               'descDitheredRA': 'Ra',
               'descDitheredDec': 'Dec',
-              'descDitheredRotTelPos': 'rotTelPos',
+              #              'descDitheredRotTelPos': 'rotTelPos',
     }
 
 class SLAIR_FORMAT:
@@ -155,13 +183,18 @@ class Read_Sqlite:
         
         # extend the array with additional values
         cols = [_katm_column(d)]
-        if self.dithers is not None:
-            cols.extend(_desc_dither_columns(d, self.dithers))
-            
         logging.info('extending output array')
         d = croaks.rec_append_fields(d, data=[c[0] for c in cols], names=[c[1] for c in cols])
         logging.info('done.')
+        
+        # there may be duplicate entries 
+        d = _remove_duplicate_entries(d)
 
+        # add the precomputed dithers
+        if self.dithers is not None:
+            print len(d), len(self.dithers)
+            d = _desc_dither_columns(d, self.dithers)            
+            
         # remapping column names to pipeline default format
         if new_col_names is not None:
             self._update_col_names(d, new_col_names)
@@ -235,9 +268,6 @@ if __name__ == "__main__":
     data = reader.get_data(cols=None, sql=sql,
                            to_degrees=args.to_degrees,
                            new_col_names=format.keymap)
-
-        
+    
     np.save(args.output, data)
 
-
-    
