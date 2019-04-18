@@ -7,6 +7,13 @@ import os.path as op
 
 cadence_name, mjd_min, mjd_max, nside, sn = get_input()
 
+zmax = 0.7
+comment='new reprocessing with new altsched cadences'
+expose(['zmax', 'comment'])
+
+
+# sn = 'normal'
+
 obs_file = glob_parent('obs.npy.npz')[0]
 plot_dir = op.dirname(get_data_fn('toto'))
 ebv_mask = '/sps/lsst/cadence/LSST_SN_CADENCE/static/ebv_mask_%d.npy' % nside
@@ -20,10 +27,15 @@ vmax_nsn = {'faint':  '15',
 cmd = ['animate_cadence.py', '-O', plot_dir, 
        '--ebv-mask', ebv_mask, obs_file, 
        '--nsn', tabulated_nsn,
-       '--min_cadence', '0.25',
+       '--min_cadence', '0.25', # was 0.01
        '--vmax_nsn', vmax_nsn[sn], 
        '--nside', str(nside),
-       '--lc_template', lc_templates[sn]]
+       '--zmax', str(zmax),
+       '--lc_template', lc_templates[sn],
+       #       '--drop-snr-req',
+       #       '--drop-early-late-req',]
+       #       '--drop-min-cadence-req',
+   ]
 print ' '.join(cmd)
 logged_subprocess(cmd)
 

@@ -111,6 +111,20 @@ class SLAIR_FORMAT:
               'skybrightness': 'sky',
               'fivesigmadepth': 'fiveSigmaDepth',}
 
+class NEW_ALTSCHED_FORMAT:
+    """
+    same as WPC_FORMAT, except for the Ra,Dec (ditheres computed by altsched)
+    (ah yes, and the AllProps table also)
+    """
+    table_name = 'SummaryAllProps'
+    keymap = {'observationStartMJD': 'mjd',
+              'filter': 'band',
+              'visitExposureTime': 'exptime',
+              'skyBrightness': 'sky',
+              'fieldRA': 'Ra',
+              'fieldDec': 'Dec',
+              }
+
 class DEFAULT_FORMAT:
     table_name = 'SummaryAllProps'
     keymap = {}
@@ -245,6 +259,8 @@ if __name__ == "__main__":
                         help='.db file uses the format of the white paper call')
     parser.add_argument('--slair', default=False, action='store_true',
                         help='.db file uses the format of the SLAIR (feature based) cadences')
+    parser.add_argument('--new-altsched', default=False, action='store_true',
+                        help='.db file uses the new altsched format (same as WPC, except for Ra,Dec) cadences')
     
     args = parser.parse_args()
     
@@ -253,6 +269,8 @@ if __name__ == "__main__":
         format = WPC_FORMAT
     elif args.slair:
         format = SLAIR_FORMAT
+    elif args.new_altsched:
+        format = NEW_ALTSCHED_FORMAT
     else:
         format = DEFAULT_FORMAT
         

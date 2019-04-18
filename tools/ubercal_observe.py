@@ -231,9 +231,9 @@ if __name__ == "__main__":
 
     # loading data
     if args.year is None:
-        log = select_in_mjd_range(np.load(args.log),
-                                  band=args.band,
-                                  mjd_min=args.mjd_min, mjd_max=args.mjd_max)
+        log = select_obs_in_mjd_range(np.load(args.log),
+                                      band=args.band,
+                                      mjd_min=args.mjd_min, mjd_max=args.mjd_max)
     else:
         log = select_survey_year(np.load(args.log), args.band, year=int(args.year))
     

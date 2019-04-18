@@ -7,6 +7,7 @@ Global plots for the LSST white paper.
 
 import os
 import os.path as op
+import glob
 import logging
 logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
                     level=logging.DEBUG)
@@ -15,9 +16,9 @@ from argparse import ArgumentParser
 
 import numpy as np
 import matplotlib
-matplotlib.use('Agg')
+#matplotlib.use('Agg')
 import pylab as pl
-pl.interactive(0)
+#pl.interactive(0)
 import healpy as hp
 import json 
 from saunerie import psf
@@ -40,7 +41,10 @@ class CadenceDb:
         if op.isfile(fn):
             with open(fn) as f:
                 self.short_names = json.load(f)
-        
+
+    def __len__(self):
+        return len(self.short_names)
+
     def cadences(self):
         if not hasattr(self, 'short_names'):
             return self.filenames
@@ -48,70 +52,121 @@ class CadenceDb:
         return zip(self.filenames, sn)
 
 
-
-def cadence_stats(cad, bands='ugrizy', title='', silent=False):
+def get_global_cadence_stat(cad, bands='ugriz'):
     r = {}
-
     open_shutter_time = cad['exptime'].sum()
     nvisits_tot = len(cad)
     r['all'] = nvisits_tot, open_shutter_time
     
-    header, nvisits, ostime, prct = '', '', '', ''
-    for band in bands:
-        header += '%10s & ' % band
-    header += ' total '
-    
     for band in bands:
         d = cad[cad['band'] == band]
         open_shutter_time = d['exptime'].sum()
-        nvisits += '%7d  & ' % len(d)
-        ostime += '%7.1f & ' % (open_shutter_time / 3600.)
-        prct += '%7.1f & ' % (100. * len(d) / nvisits_tot)
         r[band] = (len(d), open_shutter_time)
-    
-    nvisits += '%d' % len(cad)
-    ostime += '%8.1f' % (open_shutter_time / 3600.)
-    
-    if not silent:
-        print '-' * 50
-        print '    %s   ' % title
-        print '-' * 50
-        print header
-        print nvisits
-        print prct
-        print ostime
-        
+
     return r
+
+
+def filter_allocation_table(db):
+    print """
+    \\begin{table}
+    \\begin{center}
+    \\begin{tabular}{l|cccccc}
+    \hline
+    \hline
+    name & \multicolumn{7}{c}{\# visits} \\\\
+           & $u$ & $g$ & $r$ & $i$ & $z$ & $y$ & total \\\\
+    \hline
+"""
+    
+    bands="ugrizy"
+    for c in db.cadences():
+        cad = np.load(c[0])
+        stats = get_global_cadence_stat(cad, bands=bands)
+        nobs_tot, open_shutter_tot = stats['all']
+        
+        # number of observations 
+        line = "%20s & " % c[1]
+        for b in bands:
+            line += " %6d & " % stats[b][0]
+        line += " %7d \\\\ " % stats['all'][0]
+        print line 
+        
+        # fraction of all observations
+        line = "%20s & " % ' '
+        for b in bands:
+            line += " %5.1f %% & " % (100. * stats[b][0] / float(nobs_tot))
+        line += '\\\\'
+        print line 
+        print '\hline'
+
+    print """    \end{tabular}
+  \end{center}
+\end{table}
+"""
+
+
+# def cadence_stats(cad, bands='ugrizy', title='', silent=False):
+#     r = {}
+
+#     open_shutter_time = cad['exptime'].sum()
+#     nvisits_tot = len(cad)
+#     r['all'] = nvisits_tot, open_shutter_time
+    
+#     header, nvisits, ostime, prct = '', '', '', ''
+#     for band in bands:
+#         header += '%10s & ' % band
+#     header += ' total '
+    
+#     for band in bands:
+#         d = cad[cad['band'] == band]
+#         open_shutter_time = d['exptime'].sum()
+#         nvisits += '%7d  & ' % len(d)
+#         ostime += '%7.1f & ' % (open_shutter_time / 3600.)
+#         prct += '%7.1f & ' % (100. * len(d) / nvisits_tot)
+#         r[band] = (len(d), open_shutter_time)
+    
+#     nvisits += '%d' % len(cad)
+#     ostime += '%8.1f' % (open_shutter_time / 3600.)
+    
+#     if not silent:
+#         print '-' * 50
+#         print '    %s   ' % title
+#         print '-' * 50
+#         print header
+#         print nvisits
+#         print prct
+#         print ostime
+        
+#     return r
             
 
-def print_all_cadence_stats(db, bands='ugrizy', plot_band='all'):
-    n = len(CADENCE_SHORT_NAMES)
-    x = np.arange(n)
+# def print_all_cadence_stats(db, bands='ugrizy', plot_band='all'):
+#     n = len(db)
+#     x = np.arange(n)
     
-    nv,exptot = [], []
-    for fn,name in db.cadences():
-        cad = np.load(fn)
-        r = cadence_stats(cad, bands=bands, title=fn)
-        print r
-        s = r.get(plot_band, (0., 0.))
-        nv.append(s[0])
-        exptot.append(s[1])
+#     nv,exptot = [], []
+#     for fn,name in db.cadences():
+#         cad = np.load(fn)
+#         r = cadence_stats(cad, bands=bands, title=fn)
+#         s = r.get(plot_band, (0., 0.))
+#         nv.append(s[0])
+#         exptot.append(s[1])
 
-    nv = np.array(nv)
-    exptot = np.array(exptot)
+#     nv = np.array(nv)
+#     exptot = np.array(exptot)
         
-    if plot_band != '':
-        pl.figure()
-        ax = pl.subplot(211)
-        pl.bar(x,nv/1000.)
-        pl.ylabel('# visits (x1000)')
+#     if plot_band != '':
+#         pl.figure()
+#         ax = pl.subplot(211)
+#         pl.bar(x,nv/1000.)
+#         pl.ylabel('# visits (x1000)')
     
-        ax = pl.subplot(212, sharex=ax)
-        pl.bar(x,exptot/3600.)
-        pl.subplots_adjust(hspace=0.01)
-        pl.ylabel('total exptime [hours]')
-        ax.get_xaxis().set_ticks(x)
-        ax.get_xaxis().set_ticklabels(CADENCE_SHORT_NAMES, rotation=45)    
+#         ax = pl.subplot(212, sharex=ax)
+#         pl.bar(x,exptot/3600.)
+#         pl.subplots_adjust(hspace=0.01)
+#         pl.ylabel('total exptime [hours]')
+#         ax.get_xaxis().set_ticks(x)
+# #        ax.get_xaxis().set_ticklabels(CADENCE_SHORT_NAMES, rotation=45)    
 
     
 def number_of_visits(l, band=None, nside=64):

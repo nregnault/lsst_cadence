@@ -5,6 +5,7 @@ Perform the observations, for a given cadence, in a given band
 from mx.DateTime import DateTimeFrom
 import os
 
+a = 3 # reprocessing of all the cadences, with altsched's new experiments
 
 # shared with ubercal studies
 cadence_dir = '/sps/lsst/cadence/LSST_SN_CADENCE/cadence_db'
@@ -18,13 +19,10 @@ cmd = ['ubercal_observe.py', '-o', obs_file,
        '--mjd_min', str(mjd_min), '--mjd_max', str(mjd_max),
        '--nside', str(nside), 
        '--ncellsx', '1', '--ncellsy', '1', 
-       '--fast', '1', '--norefpixs',
+       '--fast', '1',
        cadence_file]
 print ' '.join(cmd)
 logged_subprocess(cmd)
 
-
-r = [(cadence_name, mjd_min, mjd_max, nside, sn) for sn in ['faint', 'normal']]
-
-seg_output = r
+seg_output = [(cadence_name, mjd_min, mjd_max, nside, sn) for sn in ['faint', 'normal']]
 

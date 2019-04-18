@@ -270,13 +270,16 @@ class CumulativeNumberOfSNe(object):
     def __call__(self, zz):
         return np.interp(zz, self.z, self.nsn, left=0.)
     
-def movie(l, zlim=0.1, zstep=0.01, nside=64, dump_plot_dir=None, nsn_func=None,
+def movie(l, zlim=0.5, zstep=0.01, nside=64, dump_plot_dir=None, nsn_func=None,
           bands=['g', 'r', 'i', 'z'],
           exclude_bands=['u', 'y'],
           vmax_nsn=None,
           min_cadence=0.5,
           lc_template=None,
-          salt2=None):
+          salt2=None,
+          snr_req=True,
+          min_cadence_req=True,
+          early_late_meas_req=True):
     """
     make a movie of the fields that pass the cuts, up to a redshift z.
     """
@@ -305,10 +308,13 @@ def movie(l, zlim=0.1, zstep=0.01, nside=64, dump_plot_dir=None, nsn_func=None,
         # check that the sampling is ok at z=0
         s,u = m.select_window(mjd, z=0., bands=bands, exclude_bands=exclude_bands)
         c = m.cadence(u, z=0.)
-        first, last = m.first_last_visits(mjd, u, z=0.)
-        c[c<min_cadence] = 0.
-        c[first==0.] = 0.
-        c[last==0.] = 0.
+        if min_cadence_req:
+            c[c<min_cadence] = 0.
+            
+        if early_late_meas_req:
+            first, last = m.first_last_visits(mjd, u, z=0.)
+            c[first==0.] = 0.
+            c[last==0.] = 0.
         c0_ok = c>0.
         
         # loop over the redshift range, and check the resolution in
@@ -323,14 +329,17 @@ def movie(l, zlim=0.1, zstep=0.01, nside=64, dump_plot_dir=None, nsn_func=None,
             # note: explore median dt
             cz = m.cadence(u, z=z)
             
-            # observations before -15 and after +30 ? 
-            firstz, lastz = m.first_last_visits(mjd, u, z=z)
             # cut in cadence 
-            cz[(cz<min_cadence)] = 0.
+            if min_cadence_req:
+                cz[(cz<min_cadence)] = 0.
             
+            # observations before -15 and after +30 ? 
+            if early_late_meas_req:
+                firstz, lastz = m.first_last_visits(mjd, u, z=z)
+                cz[(firstz==0.)] = 0.
+                cz[(lastz==0)] = 0.
+                
             # cut on the last visit
-            cz[(firstz==0.)] = 0.
-            cz[(lastz==0)] = 0.
             cz *= c0_ok
 
             # cut on sigma amplitude
@@ -353,7 +362,15 @@ def movie(l, zlim=0.1, zstep=0.01, nside=64, dump_plot_dir=None, nsn_func=None,
                                                             instrument_name + '::z': 20.})
             
             # update max-z map 
-            zmax[(cz>0) & (snr_ok>0.) & (zmax==0.)] = z
+            idx = zmax == 0.
+            if min_cadence_req:
+                idx &= (cz>0)
+            logging.info('SNR ? %r' % snr_req)
+            if snr_req:
+                logging.info('applying SNR requirement')
+                idx &= (snr_ok>0)
+                #            zmax[(cz>0) & (snr_ok>0.) & (zmax==0.)] = z
+            zmax[idx] = z
             c[c==0] = cz[c==0]
         # update the number of supernovae for that day 
         # we update (1) a map that contains the total
@@ -427,6 +444,8 @@ def movie(l, zlim=0.1, zstep=0.01, nside=64, dump_plot_dir=None, nsn_func=None,
     np.save(dump_plot_dir + os.sep + 'zmax_inst_history.npy', zmax_inst_history)
     np.save(dump_plot_dir + os.sep + 'median_cadence_inst_history.npy', median_cadence_inst_history)
     np.save(dump_plot_dir + os.sep + 'nsn_tot.npy', nsn_tot)
+    np.save(dump_plot_dir + os.sep + 'zmax_tot.npy', zmax_tot)
+    np.save(dump_plot_dir + os.sep + 'cadence_tot.npy', cadence_tot)
 
         
 if __name__ == "__main__":
@@ -438,7 +457,7 @@ if __name__ == "__main__":
                         default=None,
                         help='file containing the tabulated cumulative number of SNe')
     parser.add_argument('--zmax', 
-                        default=0.7, type=float,
+                        default=0.5, type=float,
                         help='highest redshift to test')
     parser.add_argument('--nside',
                         default=128, type=int,
@@ -455,6 +474,15 @@ if __name__ == "__main__":
     parser.add_argument('--salt2', 
                         default='salt2.npz', dest='salt2', type=str,
                         help='SALT2 model')
+    parser.add_argument('--drop-min-cadence-req', 
+                        default=False, action='store_true',
+                        help='drop the requirement on cadence')
+    parser.add_argument('--drop-snr-req', 
+                        default=False, action='store_true',
+                        help='drop the requirement on SNR')
+    parser.add_argument('--drop-early-late-req', 
+                        default=False, action='store_true',
+                        help='drop the requirement on having an early and a late measurement')
     parser.add_argument('--lc_template', 
                         dest='lc_template', type=str,
                         help='light curve template (generated from SALT2)')
@@ -490,7 +518,10 @@ if __name__ == "__main__":
           bands=['g', 'r', 'i', 'z'],
           salt2=args.salt2,
           lc_template=args.lc_template,
-          min_cadence=args.min_cadence)
+          min_cadence=args.min_cadence,
+          snr_req= not args.drop_snr_req,
+          min_cadence_req = not args.drop_min_cadence_req,
+          early_late_meas_req = not args.drop_early_late_req)
     
     #    movie(l, bands='gri', dump_plot_dir=args.output_dir)
     

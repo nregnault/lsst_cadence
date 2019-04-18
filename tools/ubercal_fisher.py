@@ -29,7 +29,7 @@ from saunerie.fitparameters import FitParameters
 import saunerie.selinv as selinv
 import saunerie.linearmodels as lm
 
-
+import ubercal
 
 
 def simple_ubercal_model(dp):
@@ -45,9 +45,9 @@ def ubercal_model_with_photflat(dp, fix_grid_zp=True):
     """
     Ubercal model with one photometric flat on
     
-    .. note : there is a degeneracy between the main zp's and 
-              the photometric flat dzp's and one needs to fix
-              at least one of them per epoch.
+    .. note: there is a degeneracy between the main zp's and 
+             the photometric flat dzp's and one needs to fix
+             at least one of them per epoch.
     
     """
     mag = lm.indic(dp.pixel_index, name='mag')
@@ -61,24 +61,126 @@ def ubercal_model_with_photflat(dp, fix_grid_zp=True):
     model.params['dzp'].fix(tofix, 0.)
     #    model.params['dzp'].fix()
     
-    if fix_grid_zp:
-        idx = dp.gridobs == True
-        tofix=np.unique(dp.expnum_index[idx])
-        logging.info('%s zp parameters fixed: %r' %(len(tofix), tofix))
-        model.params['zp'].fix(tofix, 0.)
+    # if fix_grid_zp:
+    #     idx = dp.gridobs == True
+    #     tofix=np.unique(dp.expnum_index[idx])
+    #     logging.info('%s zp parameters fixed: %r' %(len(tofix), tofix))
+    #     model.params['zp'].fix(tofix, 0.)
     
     return model
+
+
+def compute_block_hessian(model, y=None):
+    class BlockHessian:
+        pass
+    ret = BlockHessian()
+    
+    logging.info('full jacobian')
+    J = model.get_free_mat()
+
+    logging.info('splicing jacobian')
+    izp = model.params.indexof('zp') ; izp = izp[izp>=0]
+    idzp = model.params.indexof('dzp') ; idzp = idzp[idzp>=0]
+    Jp = J[:, list(izp) + list(idzp)]
+
+    imag = model.params.indexof('mag') ; imag = imag[imag>=0]
+    Jm = J[:,imag]
+    
+    logging.info('weight matrix')
+    N = Jm.shape[0]
+    s = 2.E-3
+    wmap = (1./s)**2 * np.ones(N) 
+    W = dia_matrix((wmap, [0]), shape=(N,N)) 
+    
+    logging.info('Hp')
+    ret.Hp = Hp = Jp.T * W * Jp
+    logging.info('Hm')
+    ret.Hm = Hm = Jm.T * W * Jm
+    logging.info('C')
+    ret.C = C = Jp.T * W * Jm
+    
+    Hminv = Hm.tocoo()
+    Hminv.data = 1. / Hminv.data
+    ret.Hminv = Hminv
+    
+    logging.info('reduced upper zp matrix')
+    ret.CHminv = CHminv = C * Hminv
+    #    A = Hp - C * Hminv * C.T
+    A = Hp - CHminv * C.T
+    ret.A = A.tocsc()
+    
+    Bp, Bm = None, None
+    if y is not None:
+        Bp = Jp.T * W * y
+        Bm = Jm.T * W * y
+        
+    ret.Bp = Bp
+    ret.Bm = Bm
+
+    return ret
+
+
+def do_the_fit_by_blocks(bh, y):
+    logging.info('cholesky: ')
+    fact = cholmod.cholesky(bh.A)
+    logging.info('calibration parameters')
+    B = bh.Bp - bh.CHminv * bh.Bm
+    p = fact(B)
+    logging.info('star magnitudes')
+    m = bh.Hminv * (bh.Bm - bh.C.T * p)
+    logging.info('done')
+    
+    return p, m, fact
+
+
+def save_fit_by_blocks_results(filename, p, m, dp, model, nside=1024):
+    logging.info('fit results -> %s' % filename)
+    N = hp.nside2npix(nside)
+    mm = np.zeros(N)
+    mm[dp.pixel_set] = m
+    np.savez(filename, p=p, m=m, mm=mm)
+    
+
+def generate_fake_measurements(dp):
+    y = np.zeros(len(dp.nt))
+    dy = generate_gain_variations(dp)
+    idx = dp.refstar == 1
+    y[~idx] = -12. + dy[~idx]
+    y[idx] = 19.
+    return y
+
+
+def getmat(model):
+    """
+    temporary overload of the getmat() method of linearmodel - with matrix dimensions explicitely defined.
+    """
+    N,n = len(model.rows), model.cols.max() + 1
+    if model._valid is None:
+        A = coo_matrix((model.vals, (model.rows, model.cols)), shape=(N,n)).tocsc()
+    else:
+        A = coo_matrix((model.vals[model._valid], (model.rows[model._valid], model.cols[model._valid])), shape=(N,n)).tocsc()
+    return A
+
+def get_free_mat(model):
+    """
+    temporary overload of the getmat() method of linearmodel - with matrix dimensions explicitely defined.
+    """
+    return getmat(model)[:, np.nonzero(model.params._free)[0]]
 
 
 class FisherMatrix(object):
     """
     """
-    def __init__(self, fn, refcell=94, nside=1024, perform_fit=False):
+    def __init__(self, fn, refcell=94, nside=1024, perform_fit=False, refpixs=None):
         if type(fn) is str:
-            self.obslog = self._load_obslog(fn)
+            d = [self._load_obslog(fn)]
         elif type(fn) is list:
-            self.obslog = np.hstack([self._load_obslog(f) for f in fn])
+            d = [self._load_obslog(f) for f in fn]
+        if refpixs is not None:
+            d += [self._add_refpixs(refpixs, d[0].dtype)]
         self.nside = nside
+        self.obslog = np.hstack(d)
+        #        self.obslog = self._remove_pixels_with_low_nbmeas(self.obslog, nmeas_min=5)
         self.npix = hp.nside2npix(nside)
         self.perform_fit = perform_fit
         self._flag_refcell_measurements(refcell)
@@ -94,6 +196,23 @@ class FisherMatrix(object):
         idx = self.obslog['cell'] == refcell
         self.obslog['refcell'][idx] = 1
         logging.info('%d measurements with that reference cell' % self.obslog['refcell'].sum())
+
+    def _add_refpixs(self, refpixs, dtype):
+        N = len(refpixs)
+        z = np.zeros(N, dtype=dtype)
+        z['pixel'] = refpixs
+        z['refstar'] = 1
+        return z
+
+    def _remove_pixels_with_low_nbmeas(self, d, nmeas_min=5):
+        logging.info('removing pixels with less observations than: %f' % nmeas_min)
+        npix = hp.nside2npix(self.nside)
+        c = np.bincount(d['pixel'], minlength=npix)
+        pix = np.where(c<=nmeas_min)
+        logging.info('')
+        k = np.in1d(d['pixel'], pix)
+        logging.info('%d pixels removed out of %d total measurements' % (k.sum(), len(d)))
+        return d[k]
         
     def _build_proxy(self, focal_plane_map_validity=60):
         logging.info('building data proxy')
@@ -275,16 +394,37 @@ if __name__ == "__main__":
                         help='prepare and dump control plots')
     parser.add_argument('--fit', default=0, 
                         help='perform fits')
+    parser.add_argument('--refpixs', type=str, default='equatorial',
+                        help='where to place refpixels [equatorial|ddf_4|ddf_all|random]')
     parser.add_argument('obs', type=str, nargs='+',
                         help='observation file(s)')
     
     args = parser.parse_args()
     print args    
+
+    # reference pixels 
+    if args.refpixs == 'equatorial':
+        refpixs = ubercal.get_flux_standards(args.nside, equatorial=True)
+        logging.info('equatorial refs: refpixs=%r' % refpixs)
+    elif args.refpixs == 'ddf_4':
+        refpixs = ubercal.get_flux_standards(args.nside, ddf_4=True)
+        logging.info('DDF refs: refpixs=%r' % refpixs)
+    elif args.refpixs == 'ddf_all':
+        refpixs = ubercal.get_flux_standards(args.nside, ddf_all=True)
+        logging.info('DDF refs: refpixs=%r' % refpixs)
+    elif random:
+        refpixs = ubercal.get_flux_standards(args.nside, random=10)
+        logging.info('random refs: refpixs=%r' % refpixs)
+    else:
+        refpixs = ubercal.get_flux_standards(args.nside)
+        logging.info('default refs: refpixs=%r' % refpixs)
+
     
     # compute the fisher matrix
     #    dp, model, H, fact = fisher_matrix(args.obs)
-    fm = FisherMatrix(args.obs, refcell=94, perform_fit=True)
+    fm = FisherMatrix(args.obs, refcell=94, perform_fit=True, refpixs=refpixs)
     
+"""
     logging.info('ubercal model')
     #    model = simple_ubercal_model(fm.dp)
     model = ubercal_model_with_photflat(fm.dp)
@@ -371,9 +511,9 @@ if __name__ == "__main__":
         np.savez(args.plot_dir + os.sep + 'fit.npz', m=m, p=p.full, title='fit with gain variations')
         print p         
         fig = pl.figure()
-        hp.mollview(m, nest=1, min=-0.005, max=0.005)
+        hp.mollview(m-18., nest=1, min=-0.02, max=0.02)
         pl.gcf().savefig(args.plot_dir + os.sep + 'fit.png', bbox_inches='tight')
-
+"""
 
 # def build_proxy(l):
 #     dp = croaks.DataProxy(l, expnum='expnum', cell='cell', 

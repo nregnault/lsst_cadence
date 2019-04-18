@@ -4,11 +4,12 @@
 """
 
 import pipelet.pipeline as pipeline
-from pipelet.launchers import launch_interactive, launch_process
+from pipelet.launchers import launch_interactive, launch_process, launch_pbs, launch_ccage_worker_2
 import os
 import os.path as op
 import sys
 import shutil
+import subprocess
 
 from mx.DateTime import DateTimeFrom
 
@@ -22,11 +23,20 @@ import logging
 import numpy as np
 from croaks import NTuple
 
+PROJECT='lsst'
+CPU_TIME = "160:00:00"
+MEMORY_SIZE = "16G"
+SCRATCH_SIZE = "30G"
+JOB_DIR = "/sps/lsst/cadence/LSST_SN_CADENCE/bqs/scripts"
+LOG_DIR = "/sps/lsst/cadence/LSST_SN_CADENCE/bqs/logs"
+PLATFORM_SPECS = ""
+QUEUE = 'mc_longlasting'
 
 pipedot="""
 observe -> analyze;
 observe -> global_metrics;
 """
+
 
 log_level = logging.INFO
 code_dir = op.abspath('./sncadence')
@@ -36,6 +46,8 @@ sql_file = prefix + os.sep + '.sqlstatus'
 # Jan 2018 cadences
 cadences = ['alt_sched',   
             'alt_sched_rolling',
+            'altsched_good_weather', 
+            'altsched_rolling_good_weather', 
             'feature_baseline_10yrs',
             'feature_rolling_half_mask_10yrs',
             'feature_rolling_twoThird_10yrs',
@@ -49,9 +61,39 @@ kraken_2026 pontus_2002 kraken_2036 pontus_2502""".split()
 # AltSched variants
 cadences += """altsched_18_-90_30 altsched_18_-90_40""".split()
 
+# Additional project cadences
+cadences += """mothra_2049 kraken_2042 kraken_2044 nexus_2097""".split()
+
+# Altsched + twilight 
+cadences += """alt_sched_twi""".split()
+
 # P. Yoachim experiments
 # cadences += """blobs_same_10yrs""".split()
-cadences += """blobs_mix_zmask10yrs blobs_same_10yrs blobs_same_10yrs blobs_same_zmask10yrs rolling_10yrs""".split()
+cadences += """blobs_mix_zmask10yrs blobs_same_10yrs blobs_same_10yrs blobs_same_zmask10yrs rolling_10yrs 
+cadence_mix_10yrs rolling_mix_10yrs rolling_mix_75_10yrs
+tight_mask_10yrs tight_mask_simple_10yrs tms_drive_10yrs tms_roll_10yrs
+""".split()
+
+# P. Gris new altscheds 
+cadences += """altsched_new_ddf1-90.0_18.0_30.0_20_1_10yrs altsched_new_ddf1-90.0_18.0_30.0_20_2_10yrs altsched_new_ddf1-90.0_3.0_30.0_20_1_10yrs altsched_new_ddf1-90.0_3.0_30.0_20_1_10yrs_rolling altsched_new_ddf1-90.0_3.0_30.0_20_2_10yrs altsched_new_ddf1-90.0_3.0_30.0_20_2_10yrs_rolling altsched_new_ddf1-90.0_3.0_30.0_30_2_10yrs""".split()
+
+# cadences = """altsched_good_weather kraken_2026""".split()
+
+cadences += "new_wfd1yrs".split()
+
+cadences = ['baseline_1exp_nopairs_10yrs', 'baseline_1exp_pairsame_10yrs', 'baseline_1exp_pairsmix_10yrs', 'baseline_2exp_pairsame_10yrs', 'baseline_2exp_pairsmix_10yrs', 
+            'ddf_0.23deg_1exp_pairsmix_10yrs', 'ddf_0.70deg_1exp_pairsmix_10yrs', 'ddf_pn_0.23deg_1exp_pairsmix_10yrs', 'ddf_pn_0.70deg_1exp_pairsmix_10yrs', 
+            'exptime_1exp_pairsmix_10yrs', 
+            'baseline10yrs', 
+            'big_sky10yrs', 'big_sky_nouiy10yrs', 
+            'gp_heavy10yrs', 
+            'newA10yrs', 'newB10yrs', 
+            'roll_mod2_mixed_10yrs', 'roll_mod3_mixed_10yrs', 'roll_mod6_mixed_10yrs', 
+            'simple_roll_mod10_mixed_10yrs', 'simple_roll_mod2_mixed_10yrs', 'simple_roll_mod3_mixed_10yrs', 'simple_roll_mod5_mixed_10yrs', 
+            'twilight_1s10yrs', 'altsched_1exp_pairsmix_10yrs', 'rotator_1exp_pairsmix_10yrs', 
+            'hyak_baseline_1exp_nopairs_10yrs', 'hyak_baseline_1exp_pairsame_10yrs']
+
+cadences = ['rolling_10yrs_opsim', 'rolling_mix_10yrs_opsim']
 
 
 def get_tasks(cadences, nside):
@@ -62,9 +104,23 @@ def get_tasks(cadences, nside):
     
     for c in cadences:
         for begin, end in seasons:
-            ret.append((c, begin, end, nside))
+            ret.extend([(c, begin, end, ns) for ns in nside])
     return ret
 
+
+def start_server(P, address, debug=1):
+    filename = 'pipe.pkl'
+    import cPickle
+    with open(filename, 'w') as f:
+        cPickle.dump(P, f)
+    
+    cmd = ['pipeletd', '-n', '-l', str(debug), 
+           '-a', address[0], '-p', str(address[1]), 
+           filename]
+    print ' '.join(cmd)
+    #    subprocess.Popen(cmd).communicate()[0]
+
+    
 
 def main():
     """
@@ -75,15 +131,37 @@ def main():
     parser.add_argument('-d', '--debug', 
                         help='start jobs in interactive mode',
                         dest='debug', action='store_true', default=False)
-    parser.add_argument('--nside', 
+    parser.add_argument('--nside', nargs='+',
                         help='healpy nside',
-                        dest='nside', type=int, default=64)
+                        dest='nside', type=int, default=[64,])
     parser.add_argument('-p', '--process', metavar='N', 
                         help='launch jobs as local parallel processes',
                         type=int, default=1)
     parser.add_argument('-D', '--dump_pipeline',
                         help='dump the pipeline structure in a dot file',
                         action='store_true', dest='dump', default=False)
+    parser.add_argument('-w', '--add-workers', metavar='N',
+                        help='submit N additional jobs without launching a new server', 
+                        type=int)
+    parser.add_argument('-s', '--start-server', default=False, 
+                        action='store_true',
+                        help='start the pipelet server (typically on ccwsge)')
+    
+    parser.add_argument('--project', default="lsst", type=str,
+                        help='project to which these jobs belong')
+    parser.add_argument('--cpu', default="100:00:00", type=str,
+                        help='CPU time soft limit (batch)')
+    parser.add_argument('--vmem', default="15G", type=str,
+                        help='virtual memory limit (batch)')
+    parser.add_argument('--scratch', default="25G", type=str,
+                        help='scratch size soft limit (batch)')
+    parser.add_argument('--mc', default=None, 
+                        help='multicore option (mandatory if submitting to mc queue)')
+    parser.add_argument('--queue', default='longlasting',
+                        help='queue name')
+    parser.add_argument('--ntasks_per_worker', default=None, type=int,
+                        help='maximum number of tasks per worker')
+    
     args = parser.parse_args()
 
 
@@ -105,6 +183,22 @@ def main():
     if args.debug:
         W,t = launch_interactive(P, log_level=log_level)
         W.run()
+    elif args.start_server:
+        start_server(P, address=('134.158.171.231', 50000))
+    elif args.add_workers:
+        launch_ccage_worker_2(P, args.add_workers, 
+                              address=('134.158.171.231', 50000), 
+                              project=args.project,
+                              job_name='lsst_cadence',
+                              # job_dir=JOB_DIR,
+                              # log_dir=LOG_DIR,
+                              queue=args.queue,
+                              cpu_time=args.cpu, 
+                              vmem=args.vmem, 
+                              scratch=args.scratch,
+                              multicores=args.mc,
+                              log_level=log_level,
+                              ntasks_per_worker=args.ntasks_per_worker)
     else:
         W,t = launch_process(P, args.process, 
                              log_level=log_level, 

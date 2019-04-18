@@ -7,7 +7,7 @@ global metrics for the cadence
 import os
 import os.path as op
 
-a = 3
+a = 7
 
 cadence_name, mjd_min, mjd_max, nside = get_input()
 

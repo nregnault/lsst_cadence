@@ -23,10 +23,15 @@ import numpy as np
 from croaks import NTuple
 
 
-pipedot="""
-observe -> fisher;
+pipedot_observe="""
+observe;
 """
-# observe -> fisher;
+
+pipedot_fisher = """
+observe -> fisher_2;
+ubercalfits -> fisher_2;
+"""
+
 
 log_level = logging.INFO
 code_dir = op.abspath('./ubercal')
@@ -97,14 +102,22 @@ def main():
     parser.add_argument('-D', '--dump_pipeline',
                         help='dump the pipeline structure in a dot file',
                         action='store_true', dest='dump', default=False)
+    parser.add_argument('--action',
+                        help='observe|fisher', type=str, 
+                        default='observe')
     args = parser.parse_args()
 
 
-    # pipeline instance 
-    P = pipeline.Pipeline(pipedot, 
+    if args.action == 'observe':
+        # pipeline instance 
+        pipedot = pipedot_observe
+    elif args.action == 'fisher':
+        pipedot = pipedot_fisher
+
+    P = pipeline.Pipeline(pipedot_fisher, 
                           code_dir=code_dir,
                           prefix=prefix, 
-                          sqlfile=sql_file)
+                          sqlfile=sql_file)        
     
     # print out the pipeline structure
     if args.dump:
