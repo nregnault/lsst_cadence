@@ -7,10 +7,13 @@ import os.path as op
 
 cadence_name, mjd_min, mjd_max, nside, sn = get_input()
 
-zmax = 0.7
-comment='new reprocessing with new altsched cadences'
-expose(['zmax', 'comment'])
+a = 10
 
+zmax = 0.6
+#comment='new reprocessing with new altsched cadences'
+#expose(['zmax', 'comment'])
+comment='full reprocessing for 2019-07 DESC meeting (more realistic weather files)'
+expose(['zmax', 'comment'])
 
 # sn = 'normal'
 

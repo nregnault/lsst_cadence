@@ -5,7 +5,7 @@ Perform the observations, for a given cadence, in a given band
 from mx.DateTime import DateTimeFrom
 import os
 
-a = 3 # reprocessing of all the cadences, with altsched's new experiments
+a = 10 # all cadences (including SLAIR June/July 2019 with new weather files)
 
 # shared with ubercal studies
 cadence_dir = '/sps/lsst/cadence/LSST_SN_CADENCE/cadence_db'

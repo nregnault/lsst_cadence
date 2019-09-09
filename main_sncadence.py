@@ -93,7 +93,112 @@ cadences = ['baseline_1exp_nopairs_10yrs', 'baseline_1exp_pairsame_10yrs', 'base
             'twilight_1s10yrs', 'altsched_1exp_pairsmix_10yrs', 'rotator_1exp_pairsmix_10yrs', 
             'hyak_baseline_1exp_nopairs_10yrs', 'hyak_baseline_1exp_pairsame_10yrs']
 
-cadences = ['rolling_10yrs_opsim', 'rolling_mix_10yrs_opsim']
+cadences = ['pontus_2573', 'rolling_10yrs_opsim', 'rolling_mix_10yrs_opsim']
+
+cadences = ['very_alt2_rm5illum20_10yrs', 'very_alt2_rm5illum40_10yrs', 'very_alt3_rm5illum20_10yrs',
+            'very_alt3_rm5illum40_10yrs', 'very_alt10yrs', 'very_alt2_rm5illum25_10yrs',
+            'very_alt2_rm5illum50_10yrs', 'very_alt3_rm5illum25_10yrs', 'very_alt3_rm5illum50_10yrs',
+            'very_alt2_rm5illum15_10yrs', 'very_alt2_rm5illum30_10yrs', 'very_alt3_rm5illum15_10yrs',
+            'very_alt3_rm5illum30_10yrs', 'very_alt_rm510yrs', 'noddf_1exp_pairsame_10yrs',
+            'desc_ddf_pn_0.70deg_1exp_pairsmix_10yrs', 'fc1exp_pairsmix_ilim30_10yrs', 'fc1exp_pairsmix_ilim60_10yrs',
+            'fc1exp_pairsmix_ilim15_10yrs', 'stuck_rolling10yrs', 'shortt_2ns_1ext_pairsmix_10yrs',
+            'shortt_2ns_5ext_pairsmix_10yrs', 'shortt_5ns_5ext_pairsmix_10yrs', 'shortt_5ns_1ext_pairsmix_10yrs',
+            'simple_roll_mod2_mixed_10yrs', 'roll_mod2_sdf0.2mixed_10yrs', 'simple_roll_mod3_sdf0.2mixed_10yrs',
+            'roll_mod2_sdf0.1mixed_10yrs', 'roll_mod3_sdf0.2mixed_10yrs', 'roll_mod3_sdf0.1mixed_10yrs',
+            'simple_roll_mod5_sdf0.2mixed_10yrs', 'roll_mod6_sdf0.2mixed_10yrs', 'roll_mod6_sdf0.1mixed_10yrs',
+            'simple_roll_mod10_sdf0.2mixed_10yrs', 'roll_mod2_sdf0.10mixed_10yrs', 'roll_mod2_sdf0.05mixed_10yrs',
+            'simple_roll_mod2_sdf0.20mixed_10yrs', 'roll_mod3_sdf0.05mixed_10yrs', 'roll_mod2_sdf0.20mixed_10yrs',
+            'roll_mod3_sdf0.20mixed_10yrs', 'simple_roll_mod3_sdf0.20mixed_10yrs', 'roll_mod3_sdf0.10mixed_10yrs',
+            'roll_mod6_sdf0.05mixed_10yrs', 'roll_mod6_sdf0.20mixed_10yrs', 'roll_mod6_sdf0.10mixed_10yrs',
+            'simple_roll_mod10_sdf0.20mixed_10yrs']
+
+# all cadences, including the latests ones from June/July 2019
+# with the more convervative weather files
+cadences = ['altsched_18_-90_30', 'big_sky10yrs',
+            'kraken_2035', 'roll_mod6_sdf0.05mixed_10yrs',
+            'tms_roll_10yrs', 'altsched_18_-90_40',
+            'big_sky_nouiy0yrs', 'kraken_2036',
+            'roll_mod6_sdf0.10mixed_10yrs', 'too_pairsmix_rate100_10yrs',
+            'altsched_1exp_pairsmix_10yrs', 'big_sky_nouiy10yrs',
+            'kraken_2042', 'roll_mod6_sdf0.20mixed_10yrs',
+            'too_pairsmix_rate10_10yrs', 'altsched_good_weather',
+            'blobs_mix_zmask10yrs', 'kraken_2044',
+            'rotator_1exp_pairsmix_10yrs', 'too_pairsmix_rate1_10yrs',
+            'altsched_new_ddf1-90.0_18.0_30.0_20_1_10yrs',
+            'blobs_same_10yrs', 'minion_1016',
+            'shortt_2ns_1ext_pairsmix_10yrs', 'too_pairsmix_rate50_10yrs',
+            'altsched_new_ddf1-90.0_18.0_30.0_20_2_10yrs',
+            'blobs_same_zmask10yrs', 'mothra_2045',
+            'shortt_2ns_5ext_pairsmix_10yrs', 'twilight_1s10yrs',
+            'altsched_new_ddf1-90.0_3.0_30.0_20_1_10yrs',
+            'bluer_footprint10yrs', 'mothra_2049',
+            'shortt_5ns_1ext_pairsmix_10yrs', 'very_alt10yrs',
+            'altsched_new_ddf1-90.0_3.0_30.0_20_1_10yrs_rolling',
+            'cadence_mix_10yrs', 'newA10yrs',
+            'shortt_5ns_5ext_pairsmix_10yrs',
+            'very_alt2_rm5illum15_10yrs',
+            'altsched_new_ddf1-90.0_3.0_30.0_20_2_10yrs', 'colossus_2664',
+            'newB10yrs', 'simple_roll_mod10_sdf0.20mixed_10yrs',
+            'very_alt2_rm5illum20_10yrs',
+            'altsched_new_ddf1-90.0_3.0_30.0_20_2_10yrs_rolling',
+            'colossus_2665', 'new_wfd1yrs',
+            'simple_roll_mod2_sdf0.20mixed_10yrs',
+            'very_alt2_rm5illum25_10yrs',
+            'altsched_new_ddf1-90.0_3.0_30.0_30_2_10yrs', 'colossus_2667',
+            'nexus_2097', 'simple_roll_mod3_sdf0.20mixed_10yrs',
+            'very_alt2_rm5illum30_10yrs', 'alt_sched',
+            'ddf_0.23deg_1exp_pairsmix_10yrs',
+            'noddf_1exp_pairsame_10yrs',
+            'simple_roll_mod5_sdf0.20mixed_10yrs',
+            'very_alt2_rm5illum40_10yrs', 'altsched_rolling_good_weather',
+            'ddf_0.70deg_1exp_pairsmix_10yrs', 'pontus_2002',
+            'stability_-10offset_42seed10yrs',
+            'very_alt2_rm5illum50_10yrs', 'alt_sched_rolling',
+            'ddf_pn_0.23deg_1exp_pairsmix_10yrs', 'pontus_2489',
+            'stability_10offset_42seed10yrs',
+            'very_alt3_rm5illum15_10yrs', 'alt_sched_twi',
+            'ddf_pn_0.70deg_1exp_pairsmix_10yrs', 'pontus_2502',
+            'stability_180offset_42seed10yrs',
+            'very_alt3_rm5illum20_10yrs', 'baseline0yrs',
+            'dec_1exp_pairsmix_10yrs', 'pontus_2573',
+            'stability_1offset_42seed10yrs', 'very_alt3_rm5illum25_10yrs',
+            'baseline10yrs', 'desc_ddf_pn_0.70deg_1exp_pairsmix_10yrs',
+            'presto_10yrs', 'stability_1offset_43seed10yrs',
+            'very_alt3_rm5illum30_10yrs', 
+            'exptime_1exp_pairsmix_10yrs', 'presto_third_10yrs',
+            'stability_1offset_44seed10yrs', 'very_alt3_rm5illum40_10yrs',
+            'baseline_1exp_nopairs_10yrs', 'fc1exp_pairsmix_ilim15_10yrs',
+            'rolling_10yrs', 'stability_30offset_42seed10yrs',
+            'very_alt3_rm5illum50_10yrs', 
+            'fc1exp_pairsmix_ilim30_10yrs', 'rolling_10yrs_opsim',
+            'stability_365offset_42seed10yrs', 'very_alt_rm510yrs',
+            'baseline_1exp_pairsame_10yrs',
+            'fc1exp_pairsmix_ilim60_10yrs', 'rolling_mix_10yrs',
+            'stuck_rolling10yrs', 'weather_0.10c_10yrs',
+            'feature_baseline_10yrs',
+            'rolling_mix_10yrs_opsim',
+            'templates_w_1.0_1exp_pairsmix_10yrs', 'weather_0.20c_10yrs',
+            'baseline_1exp_pairsmix_10yrs',
+            'feature_rolling_half_mask_10yrs', 'rolling_mix_75_10yrs',
+            'templates_w_2.0_1exp_pairsmix_10yrs', 'weather_0.30c_10yrs',
+            'baseline2018a', 'feature_rolling_twoThird_10yrs',
+            'roll_mod2_sdf0.05mixed_10yrs',
+            'templates_w_3.0_1exp_pairsmix_10yrs', 'weather_0.40c_10yrs',
+            'gp_heavy0yrs',
+            'roll_mod2_sdf0.10mixed_10yrs',
+            'templates_w_4.0_1exp_pairsmix_10yrs', 'weather_0.60c_10yrs',
+            'baseline_2exp_pairsame_10yrs', 'gp_heavy10yrs',
+            'roll_mod2_sdf0.20mixed_10yrs',
+            'templates_w_5.0_1exp_pairsmix_10yrs', 'weather_0.70c_10yrs',
+            'hyak_baseline_1exp_nopairs_10yrs',
+            'roll_mod3_sdf0.05mixed_10yrs', 'tight_mask_10yrs',
+            'weather_0.80c_10yrs', 'baseline_2exp_pairsmix_10yrs',
+            'hyak_baseline_1exp_pairsame_10yrs',
+            'roll_mod3_sdf0.10mixed_10yrs', 'tight_mask_simple_10yrs',
+            'weather_0.90c_10yrs', 'big_sky0yrs', 'kraken_2026',
+            'roll_mod3_sdf0.20mixed_10yrs', 'tms_drive_10yrs',
+            'weather_1.10c_10yrs',]
+
 
 
 def get_tasks(cadences, nside):
@@ -109,7 +214,7 @@ def get_tasks(cadences, nside):
 
 
 def start_server(P, address, debug=1):
-    filename = 'pipe.pkl'
+    filename = 'pipe_sncadence.pkl'
     import cPickle
     with open(filename, 'w') as f:
         cPickle.dump(P, f)
@@ -143,23 +248,26 @@ def main():
     parser.add_argument('-w', '--add-workers', metavar='N',
                         help='submit N additional jobs without launching a new server', 
                         type=int)
-    parser.add_argument('-s', '--start-server', default=False, 
+    parser.add_argument('-S', '--start-server', default=False, 
                         action='store_true',
                         help='start the pipelet server (typically on ccwsge)')
     
     parser.add_argument('--project', default="lsst", type=str,
                         help='project to which these jobs belong')
-    parser.add_argument('--cpu', default="100:00:00", type=str,
+    parser.add_argument('--port', default=50010,
+                        type=int,
+                        help='port the scheduler is listening on')
+    parser.add_argument('--cpu', default="72:00:00", type=str,
                         help='CPU time soft limit (batch)')
     parser.add_argument('--vmem', default="15G", type=str,
                         help='virtual memory limit (batch)')
     parser.add_argument('--scratch', default="25G", type=str,
                         help='scratch size soft limit (batch)')
-    parser.add_argument('--mc', default=None, 
+    parser.add_argument('--mc', default=None, type=int,
                         help='multicore option (mandatory if submitting to mc queue)')
-    parser.add_argument('--queue', default='longlasting',
+    parser.add_argument('--queue', default=None, # longlasting
                         help='queue name')
-    parser.add_argument('--ntasks_per_worker', default=None, type=int,
+    parser.add_argument('-N', '--ntasks_per_worker', default=None, type=int,
                         help='maximum number of tasks per worker')
     
     args = parser.parse_args()
@@ -184,10 +292,10 @@ def main():
         W,t = launch_interactive(P, log_level=log_level)
         W.run()
     elif args.start_server:
-        start_server(P, address=('134.158.171.231', 50000))
+        start_server(P, address=('ccwsge1348.in2p3.fr', args.port))
     elif args.add_workers:
         launch_ccage_worker_2(P, args.add_workers, 
-                              address=('134.158.171.231', 50000), 
+                              address=('ccwsge1348.in2p3.fr', args.port), 
                               project=args.project,
                               job_name='lsst_cadence',
                               # job_dir=JOB_DIR,
