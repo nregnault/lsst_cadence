@@ -26,8 +26,8 @@ from mx.DateTime import DateTimeFrom
 import croaks
 import saunerie
 from saunerie.fitparameters import FitParameters 
-import saunerie.selinv as selinv
-import saunerie.linearmodels as lm
+# import saunerie.selinv as selinv
+# import saunerie.linearmodels as lm
 
 from ubercal import lsst
 from ubercal import get_flux_standards

@@ -7,12 +7,11 @@ import os.path as op
 
 cadence_name, mjd_min, mjd_max, nside, sn = get_input()
 
-a = 10
-
 zmax = 0.6
 #comment='new reprocessing with new altsched cadences'
 #expose(['zmax', 'comment'])
-comment='full reprocessing for 2019-07 DESC meeting (more realistic weather files)'
+#comment='reprocessing for Alex & Satya (2019-2020 cadence paper)'
+comment='processing of the fbs 1.7 cadences [zmax=0.6]'
 expose(['zmax', 'comment'])
 
 # sn = 'normal'
@@ -23,8 +22,8 @@ ebv_mask = '/sps/lsst/cadence/LSST_SN_CADENCE/static/ebv_mask_%d.npy' % nside
 tabulated_nsn = '/sps/lsst/cadence/LSST_SN_CADENCE/static/tabulated_nsn_%d.npz' % nside
 lc_templates = {'faint': '/sps/lsst/cadence/LSST_SN_CADENCE/static/lc_templates.npy',
                 'normal': '/sps/lsst/cadence/LSST_SN_CADENCE/static/lc_templates_normal.npy'}
-vmax_nsn = {'faint':  '15',
-            'normal': '25'}
+vmax_nsn = {'faint':  '10',  # 15
+            'normal': '15'}  # 25
 
 
 cmd = ['animate_cadence.py', '-O', plot_dir, 
@@ -35,6 +34,7 @@ cmd = ['animate_cadence.py', '-O', plot_dir,
        '--nside', str(nside),
        '--zmax', str(zmax),
        '--lc_template', lc_templates[sn],
+       '--cadence-name', cadence_name,
        #       '--drop-snr-req',
        #       '--drop-early-late-req',]
        #       '--drop-min-cadence-req',

@@ -18,7 +18,7 @@ def main(root_dir='.', suffix='', snr_video=False):
         if r is None:
             continue
         _, cadence, _, _, nside = r.groups()
-        cmd = ['ffmpeg', '-y', '-i', dp + os.sep + '%05d.png',
+        cmd = ['ffmpeg-hi10-heaac', '-y', '-i', dp + os.sep + '%05d.png',
                '-pix_fmt', 'yuv420p',
                '-c:v', 'libx264', '-movflags', '+faststart',
                dp + os.sep + cadence + suffix + '.mp4']
@@ -26,7 +26,7 @@ def main(root_dir='.', suffix='', snr_video=False):
         subprocess.check_call(cmd)
 
         if snr_video:
-            cmd = ['ffmpeg', '-y', '-i', dp + os.sep + 'snr%05d.png',
+            cmd = ['ffmpeg-hi10-heaac', '-y', '-i', dp + os.sep + 'snr%05d.png',
                    '-pix_fmt', 'yuv420p',
                    '-c:v', 'libx264', '-movflags', '+faststart',
                    dp + os.sep + cadence + suffix + '.snr.mp4']

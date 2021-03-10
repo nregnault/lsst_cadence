@@ -279,7 +279,8 @@ def movie(l, zlim=0.5, zstep=0.01, nside=64, dump_plot_dir=None, nsn_func=None,
           salt2=None,
           snr_req=True,
           min_cadence_req=True,
-          early_late_meas_req=True):
+          early_late_meas_req=True,
+          cadence_name='unknown'):
     """
     make a movie of the fields that pass the cuts, up to a redshift z.
     """
@@ -298,6 +299,7 @@ def movie(l, zlim=0.5, zstep=0.01, nside=64, dump_plot_dir=None, nsn_func=None,
     nsn_inst_history = []
     median_cadence_inst_history = []
     zmax_inst_history = []
+    sim_history = []
     
     
     # loop on the survey mjd -- by steps of 1 day
@@ -394,22 +396,37 @@ def movie(l, zlim=0.5, zstep=0.01, nside=64, dump_plot_dir=None, nsn_func=None,
         fig = plt.figure(1, figsize=(15.,7.5))
         human_date = DateTimeFromMJD(mjd).strftime('%Y-%m-%d')
         fig.suptitle('[%s  mjd=%6.0f]' % (human_date, mjd))
+        
+        # nsn_tot 
         m.plot_map(nsn_tot, fig=1, sub=231, vmin=0., vmax=vmax_nsn, cbar=True, title='$N_{SNe}: %6.0f$ (tot)' % nsn_tot.sum())
         nsn_tot_history.append((mjd,nsn_tot.sum()))
+        h_nsn_tot = nsn_tot.sum()
+        
+        # zmax
         tmp_map[:] = hp.UNSEEN ; idx = zmax_nhits>0
         tmp_map[idx] = zmax_tot[idx] / zmax_nhits[idx]
         med = np.median(tmp_map[tmp_map>0])
+        h_zmax = med if ~np.isnan(med) else 0
         m.plot_map(tmp_map, fig=1, sub=232, vmin=0., vmax=0.5, cbar=True, title='$z_{max}$ (avg) [%4.2f]' % (med if ~np.isnan(med) else 0))
+        
+        # cadence 
         tmp_map[:] = hp.UNSEEN ; idx = cadence_nhits>0
         tmp_map[idx] = cadence_tot[idx] / cadence_nhits[idx]
         med = np.median(tmp_map[tmp_map>0])
         m.plot_map(tmp_map, fig=1, sub=233, vmin=0., vmax=1., cbar=True, title='cadence [day$^{-1}$] (avg) [%4.2f]' % (med if ~np.isnan(med) else 0))
+        h_median_cadence = med if ~np.isnan(med) else 0
         
+        # nsn_inst 
         m.plot_map(nsn_inst, fig=1, sub=234, vmin=0., vmax=0.015, cbar=True, title='$N_{SNe}: %4.0f$' % nsn_inst.sum())
         nsn_inst_history.append((mjd,nsn_inst.sum()))
+        h_nsn_inst = nsn_inst.sum()
+        
+        # z_max inst
         med = np.median(zmax[zmax>0])
         m.plot_map(zmax, fig=1, vmin=0., vmax=0.5, sub=235, cbar=True, title='$z_{max}$ [%4.2f]' % (med if ~np.isnan(med) else 0))
         zmax_inst_history.append((mjd,(med if ~np.isnan(med) else 0)))
+        h_zmax_inst = med if ~np.isnan(med) else 0
+        
         med = np.median(c[c>0])
         m.plot_cadence(c, fig=1, dump_plot_dir=dump_plot_dir, 
                        vmin=0.,
@@ -419,6 +436,7 @@ def movie(l, zlim=0.5, zstep=0.01, nside=64, dump_plot_dir=None, nsn_func=None,
                        title='cadence [day$^{-1}$] [%4.2f]' % (med if ~np.isnan(med) else 0.),
                        cbar=True)
         median_cadence_inst_history.append((mjd,(med if ~np.isnan(med) else 0.)))
+        h_median_cadence_inst = med if ~np.isnan(med) else 0.
 
         # SNR debug plots 
         fig = plt.figure(2)
@@ -432,7 +450,8 @@ def movie(l, zlim=0.5, zstep=0.01, nside=64, dump_plot_dir=None, nsn_func=None,
         # cadence debug plots
 
         m.fig_odometer += 1
-
+        
+        sim_history.append((cadence_name, mjd, h_nsn_tot, h_zmax, h_median_cadence, h_nsn_inst, h_zmax_inst, h_median_cadence_inst))
 
     # dump history
     nsn_tot_history = np.rec.fromrecords(nsn_tot_history, names=['mjd', 'val'])
@@ -446,10 +465,18 @@ def movie(l, zlim=0.5, zstep=0.01, nside=64, dump_plot_dir=None, nsn_func=None,
     np.save(dump_plot_dir + os.sep + 'nsn_tot.npy', nsn_tot)
     np.save(dump_plot_dir + os.sep + 'zmax_tot.npy', zmax_tot)
     np.save(dump_plot_dir + os.sep + 'cadence_tot.npy', cadence_tot)
+    sim_history = np.rec.fromrecords(sim_history, 
+                                     dtype=[('cadence_name', '|S120'), ('mjd', 'f8'),
+                                            ('nsn_tot', 'f8'),  ('zmax', 'f8'), ('cadence', 'f8'), 
+                                            ('nsn_inst', 'f8'), ('zmax_inst', 'f8'), ('cadence_inst', 'f8')])
+    np.save(dump_plot_dir + os.sep + 'sim_history.npy', sim_history)
 
         
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="make a movie out of a cadence")
+    parser.add_argument('-N', '--cadence-name', 
+                        default='unknown',
+                        help='specify cadence name')
     parser.add_argument('-O', '--output-dir',
                         default='./',
                         help='output directory (for the plots)')
@@ -521,10 +548,12 @@ if __name__ == "__main__":
           min_cadence=args.min_cadence,
           snr_req= not args.drop_snr_req,
           min_cadence_req = not args.drop_min_cadence_req,
-          early_late_meas_req = not args.drop_early_late_req)
+          early_late_meas_req = not args.drop_early_late_req,
+          cadence_name=args.cadence_name)
+
+
     
-    #    movie(l, bands='gri', dump_plot_dir=args.output_dir)
-    
+    #    movie(l, bands='gri', dump_plot_dir=args.output_dir)    
     # def accept(m):
     #     # more than 2 points before max
     #     # more than 7 points after max
