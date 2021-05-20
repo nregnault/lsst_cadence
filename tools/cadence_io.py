@@ -59,7 +59,8 @@ def _load_summary_file(root_dir, sntype, cadences=None):
         cadences = {}
 
     # at the moment, the pipeline spits out something called final_state
-    fn = glob.glob(root_dir + os.sep + '*_' + sntype + os.sep + 'final_state_sim_history.npy')
+    pattern = root_dir + os.sep + '*_' + sntype + os.sep + 'final_state_sim_history.npy'
+    fn = glob.glob(pattern)
     if len(fn) == 0:
         raise FileNotFound('unable to find the summary file')
     elif len(fn) > 1:
@@ -69,7 +70,7 @@ def _load_summary_file(root_dir, sntype, cadences=None):
     # match the cadence names specified in the summary ntuple
     # in order to extract the short cadence name and the FBS version
     # a side effect of this is that is removes all the <10 years simulations.
-    matches = [re.match('(.+)_?(v\d*\.\d*)_10yrs', cn.decode()) for cn in data['cadence_name']]
+    matches = [re.match('(.+)_?(v\d*\.\d*)_?10yrs', cn.decode()) for cn in data['cadence_name']]
     for i,r in enumerate(matches):
         if r is None:
             logging.warning('unable to parse cadence name: %s' % data[i]['cadence_name'])

@@ -59,7 +59,7 @@ def plot_nsn_vs_z(fn, vmin=0.3, vmax=0.5, cmap=pl.cm.jet, title='', savefig=None
         for c in d:
             #            if (c['zmax']>0.28 and c['nsn_tot']>120000.) or (c['nsn_tot']<100000):
             name = c['cadence_name'].decode()
-            r = re.match('(.+)(_?v1.7).*_10yrs', name)
+            r = re.match('(.+)(_?v1.7).*10yrs', name)
             if r is None:
                 logging.warning('unable to parse: %s' % name)
                 continue
