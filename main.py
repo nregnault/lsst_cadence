@@ -23,13 +23,19 @@ import numpy as np
 from croaks import NTuple
 
 
-pipedot="""
-observe -> fisher;
+pipedot_observe="""
+observe;
 """
+
+pipedot_fisher = """
+observe -> fisher_2;
+ubercalfits -> fisher_2;
+"""
+
 
 log_level = logging.INFO
 code_dir = op.abspath('./ubercal')
-prefix = '/scratch_ssd/regnault/LSST_GAIA_UBERCAL/'
+prefix = '/sps/lsst/cadence/UBERCAL' 
 sql_file = prefix + os.sep + '.sqlstatus'
 
 cadences = ['alt_sched',   
@@ -38,18 +44,43 @@ cadences = ['alt_sched',
             'feature_rolling_half_mask_10yrs',
             'feature_rolling_twoThird_10yrs',
             'minion_1016']
-mjds = [DateTimeFrom(str(yr) + '-01-01').mjd for yr in xrange(2022, 2033)]
+
+# white paer cadences
+cadences += """baseline2018a colossus_2667 kraken_2035
+pontus_2489 colossus_2664 mothra_2045 colossus_2665
+kraken_2026 pontus_2002 kraken_2036 pontus_2502""".split()
+
+# AltSched variants
+cadences += """altsched_18_-90_30 altsched_18_-90_40""".split()
+
+# Additional project cadences
+cadences += """mothra_2049 kraken_2042 kraken_2044 nexus_2097""".split()
+
+cadences += """blobs_mix_zmask10yrs blobs_same_10yrs blobs_same_10yrs blobs_same_zmask10yrs rolling_10yrs 
+cadence_mix_10yrs rolling_mix_10yrs rolling_mix_75_10yrs
+tight_mask_10yrs tight_mask_simple_10yrs tms_drive_10yrs tms_roll_10yrs
+""".split()
 
 
-def get_tasks(cadences, mjds, bands, nside):
-    ret = []
+def get_tasks_mjd(cadences, mjd, bands, nside, standards):
+    mjds = [DateTimeFrom(str(yr) + '-01-01').mjd for yr in xrange(2022, 2033, 1)]
     seasons = np.repeat(mjds, 2)[1:-1].reshape((-1,2))
     print seasons
     
+    ret = []    
     for c in cadences:
         for begin, end in seasons:
             for b in bands:
-                ret.append((c, begin, end, b, nside))
+                ret.append((c, begin, end, b, nside, standards))
+    return ret
+
+
+def get_tasks(cadences, bands, nside, nb_years=10):
+    ret = []
+    for c in cadences:
+        for yr in np.arange(nb_years):
+            for b in bands:
+                ret.append((c,yr,b,nside))
     return ret
 
 
@@ -71,23 +102,30 @@ def main():
     parser.add_argument('-D', '--dump_pipeline',
                         help='dump the pipeline structure in a dot file',
                         action='store_true', dest='dump', default=False)
+    parser.add_argument('--action',
+                        help='observe|fisher', type=str, 
+                        default='observe')
     args = parser.parse_args()
 
 
-    # pipeline instance 
-    P = pipeline.Pipeline(pipedot, 
+    if args.action == 'observe':
+        # pipeline instance 
+        pipedot = pipedot_observe
+    elif args.action == 'fisher':
+        pipedot = pipedot_fisher
+
+    P = pipeline.Pipeline(pipedot_fisher, 
                           code_dir=code_dir,
                           prefix=prefix, 
-                          sqlfile=sql_file)
+                          sqlfile=sql_file)        
     
     # print out the pipeline structure
     if args.dump:
         P.to_dot('pipeline.dot')
         sys.exit(0)
-        
-    #    tasks = [('minion_1016', 59580., 59945., 'r', 1024)]
-    #    tasks = get_tasks(cadences, mjds, ['g', 'r', 'i', 'z'], nside=args.nside)
-    tasks = get_tasks(cadences, mjds, ['z'], nside=args.nside)
+
+    # get the task list 
+    tasks = get_tasks(cadences, ['z'], nside=args.nside)
     P.push(observe=tasks)
     
     if args.debug:
