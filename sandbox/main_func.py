@@ -1,6 +1,7 @@
-from official import *
+from sub_func import *
 import numpy as np
 import matplotlib.pyplot as plt
+import argparse
 from pickle import Pickler as pPk
 from pickle import Unpickler as pUk
 
@@ -384,5 +385,32 @@ def make_set_metric(folder):
 
     fig.tight_layout()
     plt.savefig('Save_Metric/' + folder + 'Metric_gap.png')
-        
+
+#Argparse
+
+def parser_args_cadence():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('data', type=np.ndarray)
+    parser.add_argument('folder', type=str)
+    parser.add_argument('cadence', type=str)
+    return parser.parse_args()
+
+def parser_args_set():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('folder', type=str)
+    parser.add_argument('cadence', type=str)
+    return parser.parse_args()
     
+    
+#Main cadence
+
+def main_cadence(data, folder, cadence):
+    Making_prep(folder, cadence)
+    Make_delay_metric(data, folder, cadence)
+    Make_pixel_metric(data, folder, cadence, nb_day=16)
+    Make_repat_metric(data, folder, cadence)
+
+#Main set of cadence
+    
+def main_set(folder, cadence):
+    make_set_metric(folder, cadence)
