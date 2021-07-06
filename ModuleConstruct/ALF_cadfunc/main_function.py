@@ -1,0 +1,458 @@
+from .sub_func import *
+import numpy as np
+import matplotlib.pyplot as plt
+import argparse
+from pickle import Pickler as pPk
+from pickle import Unpickler as pUk
+
+plt.switch_backend('Agg')
+plt.ioff()
+
+def Making_prep(cadence_dir, cadence):
+
+    try:
+        os.mkdir(cadence_dir + '/save_metric')
+    except:
+        pass
+
+    try:
+        os.mkdir(cadence_dir + '/save_metric/fig')
+    except:
+        pass
+
+    DATA = {'name': cadence}
+
+    with open(cadence_dir + '/save_metric/save_data.dat', 'wb') as f:
+        pPk(f).dump(DATA)
+
+def Make_delay_metric(data, cadence_dir, cadence, bins=200, figsize=(16, 10)):
+
+    """
+    Give a statistique of cadence's gaps
+    Give array for set of candence statistique
+
+    Input :
+    data (np.array) : data which containt cadence's data
+    folder (str): folder which containt cadence
+    cadence (str) : name of concerned cadence
+    bins (int) : number of bins for histogramme in statistique
+    figsize (tuple int) : tuple containt the figsize (a, b)*100 pixel
+
+    """
+
+    j = data['mjd']
+    dj = j[1:] - j[:-1]
+    dh = dj*24
+    dm = dh*60
+
+    plt.figure(figsize=(16, 10)).suptitle('Delay statistics')
+
+    plt.subplot(231)
+    plt.hist(dj, bins, color='r')
+    plt.yscale('log')
+
+    plt.subplot(234)
+    plt.hist(dj[dj < 2], bins, color='r')
+    plt.yscale('log')
+    plt.xlabel('$\Delta$Mjd (day)')
+
+    plt.subplot(232)
+    plt.hist(dh[dh < 24], bins, color='r')
+    plt.yscale('log')
+    plt.title('Histogram $\Delta$Mjd of ' + cadence)
+
+    plt.subplot(235)
+    plt.hist(dh[dh < 5], bins, color='r')
+    plt.yscale('log')
+    plt.xlabel('$\Delta$Mjd (hour)')
+
+    plt.subplot(233)
+    plt.hist(dm[dh < 2], bins, color='r')
+    plt.yscale('log')
+
+    plt.subplot(236)
+    plt.hist(dm[dm < 60], bins, color='r')
+    plt.yscale('log')
+    plt.xlabel('$\Delta$Mjd (min)')
+
+    #plt.legend()
+    plt.savefig(cadence_dir + '/save_metric/delay.png')
+
+    data_delay = np.zeros(5).astype(float)
+
+    data_delay[0] = np.sum(dj[dh < 1])
+    data_delay[1] = np.sum(dj[dh < 9]) - np.sum(dj[dh < 1])
+    data_delay[2] = np.sum(dj[dj < 1]) - np.sum(dj[dh < 9])
+    data_delay[3] = np.sum(dj[dj < 7]) - np.sum(dj[dj < 1])
+    data_delay[4] = np.sum(dj[dj >= 7])
+
+    with open(cadence_dir + '/save_metric/save_data.dat', 'rb') as f:
+        DATA = pUk(f).load()
+    
+    DATA['delay'] = data_delay
+
+    with open(cadence_dir + '/save_metric/save_data.dat', 'wb') as f:
+        pPk(f).dump(DATA)
+
+def Make_pixel_metric(data, cadence_dir, cadence, argsMV={'cmap':'cool', 'cbar':False}, nside=64, recov=7, nb_day=30, fps=20, SUB=320, BAND=['gri', 'griz', 'g', 'r', 'i', 'z'], FMT=['.:k', '.-k', '.:r', '.:g', '.:b', '.:y'], figsize=(16, 10)):
+
+    """
+    Give metrics in rapport to activation of pixel in sky
+        - Film of activ pixel under 7 days
+        - %activ sky in function of days
+        - give data for futur metrics (%activ sky and moy of activ day in row)
+
+    data (np.array) : data cadence
+    folder (str) : name fo the set of the cadence
+    cadence (str) : name of the cadence
+    argsMV (dict) : dict which containt args for Mollview
+    nside (int) : size in pixel of the radius of sky in Mollview
+    recov (int) : days until we put a pixel in activ (i dnt knw how to say ths)
+    nb_day (int) : days when you want to applicate the metric
+    fps (int) : number of wanted fps for he video
+    SUB (int) : sub format for mollview
+    BAND (list) : list of str with wanted band for metric
+    FMT (list) : fmt wanted for metric
+    figsize (tuple) : size of the figure (a, b)*100 pixel
+    """
+
+    argsMV['nest'] = True
+    
+    mjd_i = int(data['mjd'][0])
+    mjd_f = int(data['mjd'][-1])
+
+    t = np.arange(mjd_i, mjd_f)
+    floor = np.floor(data['mjd']+5./24.)
+
+    hpx0 = np.zeros(hp.nside2npix(nside)).astype(float) + recov
+    tot_pxl = np.size(hpx0)
+    f = FocPS()
+    p = f.pixellize()
+
+    HPX = []
+    HPXs = []
+    ADDpix = []
+    t = t[:nb_day]
+
+    MET = np.zeros((np.size(BAND), np.size(t)))
+
+    for band in BAND:
+        HPX.append(np.copy(hpx0))
+        HPXs.append(np.copy(hpx0 * 0))
+        ADDpix.append([])
+
+    for k, ti in enumerate(t):
+        I = np.where(floor == ti)
+        d = data[I]
+
+        plt.figure(figsize=figsize).suptitle('{} - [{}]'.format(cadence, ti))
+
+        for i, band in enumerate(BAND):
+
+            hpxN = make_hpmoll(d, HPX[i], recov, band, f, p, SUB + 1 + i, nside, argsMV)
+            HPX[i] = np.copy(hpxN)
+
+            MET[i, k] = np.size(np.where(HPX[i] != hp.UNSEEN)[0])
+
+            fini = HPXs[i][hpxN == hp.UNSEEN]
+            ADDpix[i] += list(fini[fini != 0])
+            
+            HPXs[i][hpxN == hp.UNSEEN] = 0
+            HPXs[i][hpxN != hp.UNSEEN] += 1
+
+        plt.savefig(cadence_dir + '/save_metric/fig/fig' + str(ti) + '.png')
+        plt.close()
+
+
+    #Make the film with the figs
+    path_folder = cadence_dir + '/save_metric/'
+    #create_film(nb_day, fps, path_folder+'fig/', prefixe='fig', extension='png', init0=t[0])
+
+    #Make duration activ pixel metric hsito
+    plt.figure(figsize=figsize).suptitle('Count of duration of activ pixel')
+    for i, band in enumerate(BAND):
+        plt.subplot(SUB + 1 + i)
+        plt.hist(ADDpix[i], 200, color='r')
+        plt.yscale('log')
+        plt.title(band)
+
+    plt.savefig(cadence_dir + '/save_metric/Metric_duration_activ_pixel.png')
+
+    #Make the %sky activ pixel metric
+    plt.figure(figsize=figsize)
+
+    for fmt, band, met in zip(FMT, BAND, MET):
+
+        plt.plot(t, met/tot_pxl*100, fmt, label=band)
+
+    plt.xlabel('Day')
+    plt.ylabel('% of activ pixel in sky')
+    plt.title('Metric of Activ pixel of ' + cadence)
+    plt.legend()
+
+    plt.savefig(path_folder + 'pc_activ_sky.png')
+
+    #Make the %sky activ pixel metric for g/r/i/gri
+    plt.figure(figsize=figsize)
+
+    for fmt, band, met in zip(['.-k', '.:r', '.:g', '.:b'], ['gri', 'g', 'r', 'i'], [MET[0], MET[2], MET[3], MET[4]]):
+
+        plt.plot(t, met/tot_pxl*100, fmt, label=band)
+
+    plt.xlabel('Day')
+    plt.ylabel('% of activ pixel in sky')
+    plt.title('Metric of Activ pixel of ' + cadence)
+    plt.legend()
+
+    plt.savefig(path_folder + 'pc_activ_sky_gri.png')
+
+    #Save data for cadence set metric
+    moy_pcs = np.zeros(np.size(BAND))
+    moy_act = np.zeros(np.size(BAND))
+    med_act = np.zeros(np.size(BAND))
+
+    for i, met in enumerate(MET):
+        moy_pcs[i] = np.mean(met)/tot_pxl*100
+        moy_act[i] = np.mean(ADDpix[i])
+        med_act[i] = np.median(ADDpix[i])
+
+    with open(path_folder + 'save_data.dat', 'rb') as f:
+        DATA = pUk(f).load()
+
+    DATA['area'] = moy_pcs
+    DATA['duration_mean'] = moy_act
+    DATA['duration_medi'] = med_act
+
+    with open(path_folder + 'save_data.dat', 'wb') as f:
+        pPk(f).dump(DATA)
+    
+def Make_repat_metric(data, cadence_dir, cadence):
+
+    """
+
+    """
+
+    spy = 60*60*24 #sec per year
+    slewTime = data['slewTime']
+
+    #slew due at change filters
+    dIt = np.zeros(np.size(data) - 1)
+
+    for band in 'ugrizy':
+        I = data['band'] == band
+        dI = I[1:].astype(int) - I[:-1].astype(int)
+        dI[dI == -1] = 0
+        dIt += dI
+
+    nbr_change_filter = np.sum(dIt)
+    dIt = np.concatenate((np.array([0]), dIt))
+
+    #Tout les temps :
+    tota_t = find_total_time(data)
+    deno = 100.0/spy/tota_t
+
+    expt_t = np.sum(data['exptime'])*deno #Open Shutter time
+    filt_t = np.sum(slewTime[dIt == 1])*deno #CHange filt time
+    slew_t = np.sum(slewTime)*deno - filt_t #slew time
+    read_t = np.sum(data['visitTime'])*deno - expt_t #readout time
+    gaph_t = GiveGapHour(data)*deno #Gaps hour
+    gapd_t = 100.0 - (expt_t + filt_t + slew_t + read_t + gaph_t) #Gaps day
+
+    resume = [expt_t, slew_t, filt_t, read_t, gaph_t, gapd_t]
+
+    with open(cadence_dir + '/save_metric/save_data.dat', 'rb') as f:
+        DATA = pUk(f).load()
+
+    DATA['pourcent'] = resume
+    DATA['number_change_filter'] = nbr_change_filter
+    DATA['number_mesure'] = np.size(data)
+
+    with open(cadence_dir + '/save_metric/save_data.dat', 'wb') as f:
+        pPk(f).dump(DATA)
+
+    
+#Metric pour les set de cadence
+
+def make_set_metric(set_dir, cads_dir, version):
+
+    """listF = os.listdir(folder)
+    newL = []
+    for f in listF:
+        if ".png" in f:
+            pass
+        else:
+            newL.append(f)
+    listF = newL"""
+
+    listF = cads_dir
+
+    name = []
+
+    expt_name, expt_valr = np.zeros(np.size(listF)), np.zeros(np.size(listF))
+    slew_name, slew_valr = np.zeros(np.size(listF)), np.zeros(np.size(listF))
+    var_valr = np.zeros((np.size(listF), 6))
+
+    delay = np.zeros((np.size(listF), 5))
+    
+    #gri
+    area_gri = np.zeros(np.size(listF))
+    duration_gri_mean = np.zeros(np.size(listF))
+    duration_gri_medi = np.zeros(np.size(listF))
+    #griz
+    area_griz = np.zeros(np.size(listF))
+    duration_griz_mean = np.zeros(np.size(listF))
+    duration_griz_medi = np.zeros(np.size(listF))
+    alpha_facecolor = []
+
+    for i, fi in enumerate(cads_dir):
+
+        with open(fi + '/save_metric/save_data.dat', 'rb') as f:
+            DATA = pUk(f).load()
+
+        name.append(DATA['name'])
+        if 'rolling' in DATA['name']:
+            alpha_facecolor.append('00')
+        else:
+            alpha_facecolor.append('ff')
+        var_valr[i] = DATA['pourcent']
+        expt_valr[i] = DATA['pourcent'][0]
+        slew_valr[i] = DATA['pourcent'][1]
+        area_gri[i] = DATA['area'][0]
+        duration_gri_mean[i] = DATA['duration_mean'][0]
+        duration_gri_medi[i] = DATA['duration_medi'][0]
+        area_griz[i] = DATA['area'][1]
+        duration_griz_mean[i] = DATA['duration_mean'][1]
+        duration_griz_medi[i] = DATA['duration_medi'][1]
+        delay[i] = DATA['delay']
+
+    name = np.array(name)
+    expt_name, slew_name = np.copy(name), np.copy(name)
+
+    expt_index = np.argsort(expt_valr)
+    slew_index = np.argsort(slew_valr)
+
+    #wow metric global
+    X = [duration_gri_mean, duration_gri_medi, duration_griz_mean, duration_griz_medi]
+    Y = [area_gri, area_gri, area_griz, area_griz]
+    MODE = ['Mean', 'Median', 'Mean', 'Median']
+    TITLE = ['gri', 'gri', 'griz', 'griz']
+
+    for x, y, mode, title in zip(X, Y, MODE, TITLE):
+        
+        plt.figure(figsize=(16, 10))
+        plt.scatter(x, y, c='r')
+        for k, n in enumerate(name):
+            plt.text(x[k], y[k], n)
+        plt.xlabel(mode + ' activation duration (days)')
+        plt.ylabel('Mean active area (%sky)')
+        plt.title('For {} band :'.format(title))
+        plt.savefig(set_dir + '/save_metric/Metric_{}_{}duration.png'.format(title, mode))
+
+    #Metric exptime and slew
+    expt_name, expt_valr = expt_name[expt_index], expt_valr[expt_index]
+    slew_name, slew_valr = slew_name[slew_index][::-1], slew_valr[slew_index][::-1]
+
+    fig, ax = plt.subplots(figsize=(16, 10))
+    plot = ax.plot(expt_valr, np.arange(np.size(expt_name)), c='r', ls=':', marker='.')
+    ax.set_yticks(np.arange(np.size(expt_name)))
+    ax.set_yticklabels(expt_name)
+    ax.set_title('% Exptime')
+    plt.savefig(set_dir + '/save_metric/Metric_Exptime.png')
+
+    fig, ax = plt.subplots(figsize=(16, 10))
+    plot = ax.plot(slew_valr, np.arange(np.size(slew_name)), c='r', ls=':', marker='.')
+    ax.set_yticks(np.arange(np.size(slew_name)))
+    ax.set_yticklabels(slew_name)
+    ax.set_title('% Slewtime')
+    plt.savefig(set_dir + '/save_metric/Metric_Slewtime.png')
+    
+    #BAR
+    categories = ['Open Shutter', 'Slew', 'Filter', 'Read', 'Gap in day', 'Gap > 1 day']
+    labels = np.copy(expt_name)
+    data = var_valr[expt_index]
+    data_cum = data.cumsum(axis=1)
+    cate_color = np.array(['r', 'orange', 'y', 'g', 'b', 'purple'])
+    
+    fig, ax = plt.subplots(figsize=(16, 10))
+    ax.xaxis.set_visible(True)
+    ax.set_xlim(0, np.sum(data, axis=1).max())
+    ax.set_xlabel('% of Total Night time')
+
+    for i, (colname, color) in enumerate(zip(categories, cate_color)):
+
+        w = data[:, i]
+        start = data_cum[:, i] -w
+        rects = ax.barh(labels, w, left=start, height=0.5, label=colname, color=color)
+
+        for i in range(1, 10):
+            if i != 5:
+                ax.axvline(i*10, color='k', ls=':', alpha=0.7)
+            else:
+                ax.axvline(i*10, color='k', ls='--', alpha=0.7)
+
+        ax.legend(ncol=len(categories), bbox_to_anchor=(0, 1), loc='lower left', fontsize='small')
+        plt.title('For ' + version)
+
+        plt.savefig(set_dir + '/save_metric/Metric_bartime.png')
+
+    #DELAY
+    cate = ['<1h', '<9h', '<1j', '<7j', '>7j']
+    x = np.arange(len(cate))
+    width = 0.02
+
+    fig, ax = plt.subplots()
+    RECT = []
+    for i, d in enumerate(delay):
+
+        rect = ax.bar(x + width/2 + i*width, d, width)
+        RECT.append(rect)
+
+    ax.set_title('Statistic of gaps')
+    ax.set_xticks(x)
+    ax.set_xticklabels(cate)
+    #ax.legend()
+
+    #for i, rect in enumerate(RECT):
+    #    ax.bar_label(rect, padding=3)
+
+    fig.tight_layout()
+    plt.savefig(set_dir + '/save_metric/Metric_gap.png')
+
+    supDATA = {'version':version,
+               'duration_mean':duration_gri_mean,
+               'duration_medi':duration_gri_medi,
+               'meansky':area_gri,
+               'alpha_facecolor':alpha_facecolor}
+
+    with open(set_dir + '/save_metric/save_data.dat', 'wb') as f:
+        pPk(f).dump(supDATA)
+
+#Argparse
+
+def parser_args_cadence():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('data', type=np.ndarray)
+    parser.add_argument('folder', type=str)
+    parser.add_argument('cadence', type=str)
+    return parser.parse_args()
+
+def parser_args_set():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('folder', type=str)
+    parser.add_argument('cadence', type=str)
+    return parser.parse_args()
+    
+    
+#Main cadence
+
+def cadence_metric(data, cadence_dir, cadence0, **args):
+    cadence = change_name(cadence0)
+    Making_prep(cadence_dir, cadence)
+    Make_delay_metric(data, cadence_dir, cadence)
+    Make_pixel_metric(data, cadence_dir, cadence, **args)
+    Make_repat_metric(data, cadence_dir, cadence)
+
+#Main set of cadence
+    
+def global_metric(set_dir, cads_dir, version):
+    make_set_metric(set_dir, cads_dir, version)
