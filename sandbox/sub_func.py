@@ -1,9 +1,20 @@
+
 import os
 import numpy as np
 from lsst import FocalPlaneSimple as FocPS
 import healpy as hp
 from PIL import Image
 from scipy.interpolate import interp1d as ipd
+
+def change_name(cadence0):
+    list_sup = ['.npy', '10yrs']
+
+    cadence = cadence0
+
+    for st in list_sup:
+        cadence = ''.join(cadence.split(st))
+
+    return cadence
 
 def make_hpmoll(d, hpx0, recov, band, f, p, sub, nside, argsMV):
 

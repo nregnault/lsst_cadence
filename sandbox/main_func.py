@@ -5,6 +5,9 @@ import argparse
 from pickle import Pickler as pPk
 from pickle import Unpickler as pUk
 
+plt.switch_backend('Agg')
+plt.ioff()
+
 def Making_prep(folder, cadence):
 
     try:
@@ -301,6 +304,15 @@ def make_set_metric(folder):
     moyp_index = np.argsort(moyp_valr)
     moyt_index = np.argsort(moyt_valr)
 
+    plt.figure(figsize=(16, 10))
+    plt.scatter(moyt_valr, moyp_valr, c='r')
+    for k, n in enumerate(name):
+        plt.text(moyt_valr[k], moyp_valr[k], n)
+    plt.xlabel('Mean duration of active pixel (day)')
+    plt.ylabel('Mean %active pixel sky')
+    plt.legend()
+    plt.savefig('Save_Metric/' + folder + 'Metric_skyduration.png')
+
     expt_name, expt_valr = expt_name[expt_index], expt_valr[expt_index]
     slew_name, slew_valr = slew_name[slew_index][::-1], slew_valr[slew_index][::-1]
     moyp_name, moyp_valr = moyp_name[moyp_index], moyp_valr[moyp_index]
@@ -404,13 +416,14 @@ def parser_args_set():
     
 #Main cadence
 
-def main_cadence(data, folder, cadence):
+def main_cadence(data, folder, cadence0):
+    cadence = change_name(cadence0)
     Making_prep(folder, cadence)
     Make_delay_metric(data, folder, cadence)
-    Make_pixel_metric(data, folder, cadence, nb_day=16)
+    Make_pixel_metric(data, folder, cadence, nb_day=360)
     Make_repat_metric(data, folder, cadence)
 
 #Main set of cadence
     
-def main_set(folder, cadence):
-    make_set_metric(folder, cadence)
+def main_set(folder):
+    make_set_metric(folder)
